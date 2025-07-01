@@ -1,0 +1,1 @@
+[![codecov](https://codecov.io/gh/logan-han/emoji-guesser/graph/badge.svg?token=pWvcAae7JM)](https://codecov.io/gh/logan-han/emoji-guesser)

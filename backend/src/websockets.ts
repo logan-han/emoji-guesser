@@ -1,0 +1,799 @@
+import { APIGatewayProxyHandler, APIGatewayEvent } from 'aws-lambda';
+import * as AWS from 'aws-sdk';
+import { v4 as uuidv4 } from 'uuid';
+import { getRandomWords, generateHint } from './dictionary';
+
+const dynamoDb = new AWS.DynamoDB.DocumentClient();
+const GAMES_TABLE = process.env.GAMES_TABLE || 'emoji-guesser-games';
+
+// --- Helper Functions ---
+
+const getApiGatewayManagementApi = (event: APIGatewayEvent) => {
+    return new AWS.ApiGatewayManagementApi({
+        apiVersion: '2018-11-29',
+        endpoint: `${event.requestContext.domainName}/${event.requestContext.stage}`,
+    });
+};
+
+const sendMessageToClient = async (connectionId: string, payload: any, event: APIGatewayEvent) => {
+    try {
+        const apiGateway = getApiGatewayManagementApi(event);
+        await apiGateway.postToConnection({
+            ConnectionId: connectionId,
+            Data: JSON.stringify(payload),
+        }).promise();
+    } catch (e: any) {
+        if (e.statusCode !== 410) {
+            console.error(`Failed to send message to ${connectionId}:`, e);
+        }
+    }
+};
+
+const broadcastToPlayers = async (playerIds: string[], payload: any, event: APIGatewayEvent) => {
+    const broadcastPromises = playerIds.map(id => sendMessageToClient(id, payload, event));
+    await Promise.all(broadcastPromises);
+};
+
+
+// --- WebSocket Handlers ---
+
+export const connect: APIGatewayProxyHandler = async (event) => {
+  const { connectionId } = event.requestContext;
+  console.log('New connection', connectionId);
+  if (connectionId) {
+    await sendMessageToClient(connectionId, { action: 'connected', connectionId }, event as APIGatewayEvent);
+  }
+  return { statusCode: 200, body: 'Connected' };
+};
+
+export const disconnect: APIGatewayProxyHandler = async (event) => {
+  const { connectionId } = event.requestContext;
+  console.log('Disconnected', connectionId);
+  
+  // Remove player from any games they were in
+  try {
+    const scanParams = {
+      TableName: GAMES_TABLE,
+      FilterExpression: 'contains(players, :connectionId)',
+      ExpressionAttributeValues: {
+        ':connectionId': connectionId
+      }
+    };
+    
+    const result = await dynamoDb.scan(scanParams).promise();
+    
+    if (result.Items && result.Items.length > 0) {
+      for (const game of result.Items) {
+        const updatedPlayers = game.players.filter((p: any) => p.connectionId !== connectionId);
+        
+        if (updatedPlayers.length === 0) {
+          // Delete empty game
+          await dynamoDb.delete({ TableName: GAMES_TABLE, Key: { gameId: game.gameId } }).promise();
+        } else {
+          // Update game with remaining players
+          const updateParams = {
+            TableName: GAMES_TABLE,
+            Key: { gameId: game.gameId },
+            UpdateExpression: 'set players = :p',
+            ExpressionAttributeValues: { ':p': updatedPlayers }
+          };
+          await dynamoDb.update(updateParams).promise();
+          
+          // Notify remaining players
+          const playerIds = updatedPlayers.map((p: any) => p.connectionId);
+          await broadcastToPlayers(playerIds, { 
+            action: 'playerLeft', 
+            game: { ...game, players: updatedPlayers } 
+          }, event as APIGatewayEvent);
+        }
+      }
+    }
+  } catch (error) {
+    console.error('Error handling disconnect:', error);
+  }
+  
+  return { statusCode: 200, body: 'Disconnected' };
+};
+
+// --- Game Logic Functions ---
+
+async function createGame(connectionId: string, event: APIGatewayEvent, sessionId?: string, timeLimit?: number) {
+    const gameId = uuidv4().substring(0, 6).toUpperCase();
+    const game = {
+        gameId,
+        ownerId: connectionId,
+        ownerSessionId: sessionId, // Store owner session for better identification
+        players: [{ 
+            connectionId, 
+            sessionId,
+            score: 0, 
+            name: 'Player 1',
+            joinedAt: new Date().toISOString(),
+            lastSeen: new Date().toISOString()
+        }],
+        gameState: 'WAITING',
+        createdAt: new Date().toISOString(),
+        timeLimit: timeLimit || 180, // Use provided timeLimit or default to 3 minutes
+        maxRounds: 0 // Will be set to number of players when game starts
+    };
+
+    try {
+        await dynamoDb.put({ TableName: GAMES_TABLE, Item: game }).promise();
+        console.log(`Game ${gameId} created by ${connectionId}`);
+        await sendMessageToClient(connectionId, { action: 'gameCreated', game }, event);
+    } catch (error) {
+        console.error('Failed to create game:', error);
+        await sendMessageToClient(connectionId, { action: 'error', message: 'Could not create game.' }, event);
+    }
+}
+
+async function joinGame(connectionId: string, gameId: string, event: APIGatewayEvent, sessionId?: string, playerName?: string) {
+    const getParams = { TableName: GAMES_TABLE, Key: { gameId } };
+
+    try {
+        const result = await dynamoDb.get(getParams).promise();
+        if (!result.Item) {
+            await sendMessageToClient(connectionId, { action: 'error', message: 'Game not found.' }, event);
+            return;
+        }
+
+        const game = result.Item;
+
+        // Check if player already in game by sessionId or connectionId
+        let existingPlayer = game.players.find((p: any) => p.connectionId === connectionId);
+        if (!existingPlayer && sessionId) {
+            existingPlayer = game.players.find((p: any) => p.sessionId === sessionId);
+        }
+        
+        if (existingPlayer) {
+            // Update connection info for existing player
+            existingPlayer.connectionId = connectionId;
+            existingPlayer.lastSeen = new Date().toISOString();
+            if (playerName) {
+                existingPlayer.name = playerName;
+            }
+            
+            // If this reconnecting player is the owner, update the ownerId
+            if (sessionId && game.ownerSessionId === sessionId) {
+                game.ownerId = connectionId;
+            }
+            
+            const updateParams = {
+                TableName: GAMES_TABLE,
+                Key: { gameId },
+                UpdateExpression: sessionId && game.ownerSessionId === sessionId 
+                    ? 'set players = :p, ownerId = :o'
+                    : 'set players = :p',
+                ExpressionAttributeValues: sessionId && game.ownerSessionId === sessionId 
+                    ? { ':p': game.players, ':o': connectionId }
+                    : { ':p': game.players },
+            };
+
+            await dynamoDb.update(updateParams).promise();
+            await sendMessageToClient(connectionId, { action: 'playerJoined', game }, event);
+            
+            // If game is in progress, send additional info
+            if (game.gameState === 'IN_PROGRESS') {
+                // Determine player's role
+                if (game.currentDescriberIndex !== undefined && game.players[game.currentDescriberIndex].connectionId === connectionId) {
+                    if (game.turnState === 'CHOOSING_WORD' && game.wordOptions) {
+                        await sendMessageToClient(connectionId, { action: 'chooseWord', wordOptions: game.wordOptions }, event);
+                    } else if (game.turnState === 'DESCRIBING' && game.secretWord) {
+                        await sendMessageToClient(connectionId, { action: 'describeWord', word: game.secretWord }, event);
+                    }
+                } else if (game.turnState === 'DESCRIBING' && game.currentHint) {
+                    // Send current hint to non-describer players
+                    await sendMessageToClient(connectionId, { action: 'hintUpdated', hint: game.currentHint }, event);
+                }
+            }
+            
+            // Notify other players
+            const otherPlayerIds = game.players.map((p: any) => p.connectionId).filter((id: string) => id !== connectionId);
+            await broadcastToPlayers(otherPlayerIds, { action: 'playerReconnected', game }, event);
+            return;
+        }
+
+        // Only allow new players to join if game is waiting
+        if (game.gameState !== 'WAITING') {
+            await sendMessageToClient(connectionId, { action: 'error', message: 'Game already in progress. Cannot join as new player.' }, event);
+            return;
+        }
+
+        const newPlayer = { 
+            connectionId, 
+            sessionId,
+            score: 0, 
+            name: playerName || `Player ${game.players.length + 1}`,
+            joinedAt: new Date().toISOString(),
+            lastSeen: new Date().toISOString()
+        };
+        game.players.push(newPlayer);
+
+        const updateParams = {
+            TableName: GAMES_TABLE,
+            Key: { gameId },
+            UpdateExpression: 'set players = :p',
+            ExpressionAttributeValues: { ':p': game.players },
+        };
+
+        await dynamoDb.update(updateParams).promise();
+        console.log(`Player ${connectionId} joined game ${gameId}`);
+
+        const playerIds = game.players.map((p: any) => p.connectionId);
+        await broadcastToPlayers(playerIds, { action: 'playerJoined', game }, event);
+
+    } catch (error) {
+        console.error(`Failed to join game ${gameId}:`, error);
+        await sendMessageToClient(connectionId, { action: 'error', message: 'Could not join game.' }, event);
+    }
+}
+
+async function startGame(connectionId: string, gameId: string, event: APIGatewayEvent, sessionId?: string, timeLimit?: number) {
+    const getParams = { TableName: GAMES_TABLE, Key: { gameId } };
+
+    try {
+        const result = await dynamoDb.get(getParams).promise();
+        if (!result.Item) {
+            await sendMessageToClient(connectionId, { action: 'error', message: 'Game not found.' }, event);
+            return;
+        }
+
+        const game = result.Item;
+
+        // Check ownership by both connectionId and sessionId
+        const isOwner = game.ownerId === connectionId || 
+                       (sessionId && game.ownerSessionId === sessionId);
+        
+        if (!isOwner) {
+            await sendMessageToClient(connectionId, { action: 'error', message: 'Only the owner can start the game.' }, event);
+            return;
+        }
+
+        if (game.players.length < 2) {
+            await sendMessageToClient(connectionId, { action: 'error', message: 'You need at least 2 players to start.' }, event);
+            return;
+        }
+
+        // Shuffle players for random turn order
+        const shuffledPlayers = [...game.players].sort(() => Math.random() - 0.5);
+        
+        game.gameState = 'IN_PROGRESS';
+        game.currentRound = 1;
+        game.maxRounds = shuffledPlayers.length; // Each player gets one turn to describe
+        game.currentDescriberIndex = 0;
+        game.players = shuffledPlayers;
+        game.turnState = 'CHOOSING_WORD';
+        game.turnStartTime = new Date().toISOString();
+        
+        // Generate 3 random words for the first describer to choose from
+        game.wordOptions = getRandomWords();
+        
+        // Update timeLimit if provided
+        if (timeLimit !== undefined) {
+            game.timeLimit = timeLimit;
+        }
+
+        const updateParams = {
+            TableName: GAMES_TABLE,
+            Key: { gameId },
+            UpdateExpression: 'set gameState = :s, currentRound = :r, currentDescriberIndex = :d, players = :p, turnState = :t, maxRounds = :m, turnStartTime = :ts, timeLimit = :tl, wordOptions = :wo',
+            ExpressionAttributeValues: {
+                ':s': game.gameState,
+                ':r': game.currentRound,
+                ':d': game.currentDescriberIndex,
+                ':p': game.players,
+                ':t': game.turnState,
+                ':m': game.maxRounds,
+                ':ts': game.turnStartTime,
+                ':tl': game.timeLimit,
+                ':wo': game.wordOptions
+            },
+        };
+
+        await dynamoDb.update(updateParams).promise();
+        console.log(`Game ${gameId} started`);
+
+        const playerIds = game.players.map((p: any) => p.connectionId);
+        await broadcastToPlayers(playerIds, { action: 'gameStarted', game }, event);
+
+        // Notify the current describer to choose a word
+        const describerId = game.players[game.currentDescriberIndex].connectionId;
+        await sendMessageToClient(describerId, { 
+            action: 'chooseWord', 
+            wordOptions: game.wordOptions 
+        }, event);
+        
+        // Send status message to all players
+        const describerName = game.players[game.currentDescriberIndex].name;
+        await broadcastToPlayers(playerIds, { 
+            action: 'statusMessage', 
+            message: `${describerName} is choosing a word...`,
+            timestamp: Date.now()
+        }, event);
+
+    } catch (error) {
+        console.error(`Failed to start game ${gameId}:`, error);
+        await sendMessageToClient(connectionId, { action: 'error', message: 'Could not start game.' }, event);
+    }
+}
+
+async function chooseWord(connectionId: string, gameId: string, word: string, event: APIGatewayEvent) {
+    const getParams = { TableName: GAMES_TABLE, Key: { gameId } };
+
+    try {
+        const result = await dynamoDb.get(getParams).promise();
+        if (!result.Item) { return; }
+
+        const game = result.Item;
+        
+        // Validate the sender is the current describer
+        if (game.currentDescriberIndex === undefined || 
+            game.players[game.currentDescriberIndex].connectionId !== connectionId) {
+            await sendMessageToClient(connectionId, { action: 'error', message: 'You are not the current describer.' }, event);
+            return;
+        }
+
+        // Validate the word is one of the options
+        if (!game.wordOptions || !game.wordOptions.includes(word)) {
+            await sendMessageToClient(connectionId, { action: 'error', message: 'Invalid word choice.' }, event);
+            return;
+        }
+
+        game.secretWord = word.trim();
+        game.turnState = 'DESCRIBING';
+        game.turnStartTime = new Date().toISOString();
+        
+        // Generate initial hint (all blanks)
+        game.currentHint = generateHint(game.secretWord, 0, game.timeLimit * 1000);
+
+        const updateParams = {
+            TableName: GAMES_TABLE,
+            Key: { gameId },
+            UpdateExpression: 'set secretWord = :w, turnState = :t, turnStartTime = :ts, currentHint = :h REMOVE wordOptions',
+            ExpressionAttributeValues: { 
+                ':w': game.secretWord, 
+                ':t': game.turnState,
+                ':ts': game.turnStartTime,
+                ':h': game.currentHint
+            },
+        };
+
+        await dynamoDb.update(updateParams).promise();
+
+        const describerId = game.players[game.currentDescriberIndex].connectionId;
+        await sendMessageToClient(describerId, { action: 'describeWord', word: game.secretWord }, event);
+
+        // Notify all other players that the turn has started with the hint
+        const playerIds = game.players.map((p: any) => p.connectionId);
+        const nonDescriberIds = playerIds.filter((id: string) => id !== describerId);
+        await broadcastToPlayers(nonDescriberIds, { 
+            action: 'turnStarted', 
+            game,
+            hint: game.currentHint
+        }, event);
+
+        // Send status message to all players
+        const describerName = game.players[game.currentDescriberIndex].name;
+        await broadcastToPlayers(playerIds, { 
+            action: 'statusMessage', 
+            message: `${describerName} is now describing the word!`,
+            timestamp: Date.now()
+        }, event);
+
+        // Start hint update timer
+        await startHintTimer(gameId, event);
+
+    } catch (error) {
+        console.error(`Failed to choose word for game ${gameId}:`, error);
+        await sendMessageToClient(connectionId, { action: 'error', message: 'Could not choose word.' }, event);
+    }
+}
+
+async function startHintTimer(gameId: string, event: APIGatewayEvent) {
+    // This function will be called periodically to update hints
+    // For now, we'll handle hint updates in the game loop
+}
+
+async function submitGuess(connectionId: string, gameId: string, guess: string, event: APIGatewayEvent) {
+    const getParams = { TableName: GAMES_TABLE, Key: { gameId } };
+
+    try {
+        const result = await dynamoDb.get(getParams).promise();
+        if (!result.Item) { return; }
+
+        const game = result.Item;
+        const player = game.players.find((p: any) => p.connectionId === connectionId);
+        
+        if (!player) return;
+
+        // Don't allow describer to guess their own word
+        if (game.currentDescriberIndex !== undefined && 
+            game.players[game.currentDescriberIndex].connectionId === connectionId) {
+            return;
+        }
+
+        if (guess.toLowerCase().trim() === game.secretWord.toLowerCase().trim()) {
+            // Correct guess - calculate scores
+            const turnDuration = Date.now() - new Date(game.turnStartTime).getTime();
+            const baseScore = 100;
+            const timeBonus = Math.max(0, 50 - Math.floor(turnDuration / 1000)); // Bonus for quick guesses
+            
+            const guesser = player;
+            const describer = game.players[game.currentDescriberIndex];
+
+            guesser.score += baseScore + timeBonus;
+            describer.score += 75; // Points for successful description
+
+            const playerIds = game.players.map((p: any) => p.connectionId);
+            await broadcastToPlayers(playerIds, { 
+                action: 'wordGuessed', 
+                guesserName: guesser.name,
+                word: game.secretWord,
+                game 
+            }, event);
+
+            // Move to next turn
+            await nextTurn(game, event);
+
+        } else {
+            // Incorrect guess - broadcast to all players
+            const playerIds = game.players.map((p: any) => p.connectionId);
+            await broadcastToPlayers(playerIds, { 
+                action: 'newGuess', 
+                text: `${player.name}: ${guess}`,
+                guesserId: connectionId
+            }, event);
+        }
+
+    } catch (error) {
+        console.error(`Failed to submit guess for game ${gameId}:`, error);
+    }
+}
+
+async function nextTurn(game: any, event: APIGatewayEvent) {
+    // Check if all players have had their turn
+    if (game.currentRound >= game.maxRounds) {
+        // Game ended
+        game.gameState = 'ENDED';
+        
+        const updateParams = {
+            TableName: GAMES_TABLE,
+            Key: { gameId: game.gameId },
+            UpdateExpression: 'set gameState = :s',
+            ExpressionAttributeValues: { ':s': 'ENDED' },
+        };
+        
+        await dynamoDb.update(updateParams).promise();
+        
+        const playerIds = game.players.map((p: any) => p.connectionId);
+        await broadcastToPlayers(playerIds, { action: 'gameEnded', game }, event);
+        return;
+    }
+
+    // Move to next turn
+    game.currentDescriberIndex = (game.currentDescriberIndex + 1) % game.players.length;
+    
+    // If we've gone through all players once, increment round
+    if (game.currentDescriberIndex === 0) {
+        game.currentRound += 1;
+    }
+    
+    // Generate new word options for the next describer
+    game.wordOptions = getRandomWords();
+    delete game.secretWord;
+    delete game.currentHint;
+    game.turnState = 'CHOOSING_WORD';
+    game.turnStartTime = new Date().toISOString();
+
+    const updateParams = {
+        TableName: GAMES_TABLE,
+        Key: { gameId: game.gameId },
+        UpdateExpression: 'set currentDescriberIndex = :d, turnState = :t, currentRound = :r, players = :p, turnStartTime = :ts, wordOptions = :wo REMOVE #sw, #ch',
+        ExpressionAttributeValues: {
+            ':d': game.currentDescriberIndex,
+            ':t': game.turnState,
+            ':r': game.currentRound,
+            ':p': game.players,
+            ':ts': game.turnStartTime,
+            ':wo': game.wordOptions
+        },
+        ExpressionAttributeNames: {
+            '#sw': 'secretWord',
+            '#ch': 'currentHint'
+        }
+    };
+
+    await dynamoDb.update(updateParams).promise();
+
+    const playerIds = game.players.map((p: any) => p.connectionId);
+    await broadcastToPlayers(playerIds, { action: 'nextTurn', game }, event);
+    
+    // Notify the new describer to choose a word
+    const describerId = game.players[game.currentDescriberIndex].connectionId;
+    await sendMessageToClient(describerId, { 
+        action: 'chooseWord', 
+        wordOptions: game.wordOptions 
+    }, event);
+    
+    // Send status message to all players
+    const describerName = game.players[game.currentDescriberIndex].name;
+    await broadcastToPlayers(playerIds, { 
+        action: 'statusMessage', 
+        message: `${describerName} is choosing a word...`,
+        timestamp: Date.now()
+    }, event);
+}
+
+async function submitEmoji(connectionId: string, gameId: string, emoji: string, event: APIGatewayEvent) {
+    const getParams = { TableName: GAMES_TABLE, Key: { gameId } };
+
+    try {
+        const result = await dynamoDb.get(getParams).promise();
+        if (!result.Item) { return; } // Game not found
+
+        const game = result.Item;
+        const playerIds = game.players.map((p: any) => p.connectionId);
+        await broadcastToPlayers(playerIds, { action: 'newEmoji', emoji }, event);
+
+    } catch (error) {
+        console.error(`Failed to submit emoji for game ${gameId}:`, error);
+    }
+}
+
+async function heartbeat(connectionId: string, event: APIGatewayEvent, sessionId?: string) {
+    // Update last seen timestamp for player in all games
+    try {
+        const scanParams = {
+            TableName: GAMES_TABLE,
+            FilterExpression: 'contains(players, :connectionId) OR contains(players, :sessionId)',
+            ExpressionAttributeValues: {
+                ':connectionId': connectionId,
+                ':sessionId': sessionId || ''
+            }
+        };
+        
+        const result = await dynamoDb.scan(scanParams).promise();
+        
+        if (result.Items && result.Items.length > 0) {
+            for (const game of result.Items) {
+                let updated = false;
+                for (const player of game.players) {
+                    if (player.connectionId === connectionId || (sessionId && player.sessionId === sessionId)) {
+                        player.lastSeen = new Date().toISOString();
+                        player.connectionId = connectionId; // Update connection if needed
+                        updated = true;
+                    }
+                }
+                
+                if (updated) {
+                    const updateParams = {
+                        TableName: GAMES_TABLE,
+                        Key: { gameId: game.gameId },
+                        UpdateExpression: 'set players = :p',
+                        ExpressionAttributeValues: { ':p': game.players }
+                    };
+                    await dynamoDb.update(updateParams).promise();
+                }
+            }
+        }
+        
+        await sendMessageToClient(connectionId, { action: 'heartbeatAck' }, event);
+    } catch (error) {
+        console.error('Failed to process heartbeat:', error);
+    }
+}
+
+async function updatePlayerName(connectionId: string, gameId: string, name: string, event: APIGatewayEvent, sessionId?: string) {
+    const getParams = { TableName: GAMES_TABLE, Key: { gameId } };
+
+    try {
+        const result = await dynamoDb.get(getParams).promise();
+        if (!result.Item) {
+            await sendMessageToClient(connectionId, { action: 'error', message: 'Game not found.' }, event);
+            return;
+        }
+
+        const game = result.Item;
+        let playerIndex = game.players.findIndex((p: any) => p.connectionId === connectionId);
+        
+        // If not found by connectionId, try sessionId
+        if (playerIndex === -1 && sessionId) {
+            playerIndex = game.players.findIndex((p: any) => p.sessionId === sessionId);
+        }
+        
+        if (playerIndex === -1) {
+            await sendMessageToClient(connectionId, { action: 'error', message: 'Player not found in game.' }, event);
+            return;
+        }
+
+        game.players[playerIndex].name = name || `Player ${playerIndex + 1}`;
+        game.players[playerIndex].lastSeen = new Date().toISOString();
+
+        const updateParams = {
+            TableName: GAMES_TABLE,
+            Key: { gameId },
+            UpdateExpression: 'set players = :p',
+            ExpressionAttributeValues: { ':p': game.players },
+        };
+
+        await dynamoDb.update(updateParams).promise();
+        
+        const playerIds = game.players.map((p: any) => p.connectionId);
+        await broadcastToPlayers(playerIds, { action: 'playerNameUpdated', game }, event);
+
+    } catch (error) {
+        console.error(`Failed to update player name for game ${gameId}:`, error);
+        await sendMessageToClient(connectionId, { action: 'error', message: 'Could not update name.' }, event);
+    }
+}
+
+async function handleTimeUp(gameId: string, event: APIGatewayEvent) {
+    const getParams = { TableName: GAMES_TABLE, Key: { gameId } };
+
+    try {
+        const result = await dynamoDb.get(getParams).promise();
+        if (!result.Item) { return; }
+
+        const game = result.Item;
+        
+        // Check if game is still in describing state
+        if (game.turnState !== 'DESCRIBING') {
+            return; // Round already ended
+        }
+
+        // End the current round due to timeout
+        const playerIds = game.players.map((p: any) => p.connectionId);
+        await broadcastToPlayers(playerIds, { 
+            action: 'timeUp', 
+            message: "⏰ Time's up! Moving to next turn...",
+            word: game.secretWord
+        }, event);
+
+        // Move to next turn
+        await nextTurn(game, event);
+
+    } catch (error) {
+        console.error(`Failed to handle time up for game ${gameId}:`, error);
+    }
+}
+
+async function updateHint(gameId: string, event: APIGatewayEvent) {
+    const getParams = { TableName: GAMES_TABLE, Key: { gameId } };
+
+    try {
+        const result = await dynamoDb.get(getParams).promise();
+        if (!result.Item) { return; }
+
+        const game = result.Item;
+        
+        // Only update hint if game is in describing state
+        if (game.turnState !== 'DESCRIBING' || !game.secretWord) {
+            return;
+        }
+
+        const timeElapsed = Date.now() - new Date(game.turnStartTime).getTime();
+        const newHint = generateHint(game.secretWord, timeElapsed, game.timeLimit * 1000);
+        
+        // Only update if hint has changed
+        if (newHint !== game.currentHint) {
+            game.currentHint = newHint;
+            
+            const updateParams = {
+                TableName: GAMES_TABLE,
+                Key: { gameId },
+                UpdateExpression: 'set currentHint = :h',
+                ExpressionAttributeValues: { ':h': game.currentHint },
+            };
+
+            await dynamoDb.update(updateParams).promise();
+
+            // Broadcast updated hint to all non-describer players
+            const playerIds = game.players.map((p: any) => p.connectionId);
+            const describerId = game.players[game.currentDescriberIndex].connectionId;
+            const nonDescriberIds = playerIds.filter((id: string) => id !== describerId);
+            
+            await broadcastToPlayers(nonDescriberIds, { 
+                action: 'hintUpdated', 
+                hint: game.currentHint
+            }, event);
+        }
+
+    } catch (error) {
+        console.error(`Failed to update hint for game ${gameId}:`, error);
+    }
+}
+
+
+// --- Default Message Handler ---
+
+export const default_handler: APIGatewayProxyHandler = async (event) => {
+    const { connectionId } = event.requestContext;
+
+    if (!event.body || !connectionId) {
+        return { statusCode: 400, body: 'Invalid request' };
+    }
+
+    let data;
+    try {
+        data = JSON.parse(event.body);
+    } catch (e) {
+        console.error("Failed to parse message body:", event.body);
+        return { statusCode: 400, body: 'Invalid JSON format.' };
+    }
+
+    const { action, gameId, word, guess, emoji, name, sessionId, playerName, timeLimit } = data;
+    console.log(`Action '${action}' received from ${connectionId}`);
+
+    const apiGatewayEvent = event as APIGatewayEvent;
+
+    switch (action) {
+        case 'createGame':
+            await createGame(connectionId, apiGatewayEvent, sessionId, timeLimit);
+            break;
+        case 'joinGame':
+            if (gameId) {
+                await joinGame(connectionId, gameId, apiGatewayEvent, sessionId, playerName);
+            } else {
+                await sendMessageToClient(connectionId, { action: 'error', message: 'gameId is required for joinGame action.' }, apiGatewayEvent);
+            }
+            break;
+        case 'startGame':
+            if (gameId) {
+                await startGame(connectionId, gameId, apiGatewayEvent, sessionId, timeLimit);
+            } else {
+                await sendMessageToClient(connectionId, { action: 'error', message: 'gameId is required for startGame action.' }, apiGatewayEvent);
+            }
+            break;
+        case 'updatePlayerName':
+            if (gameId && name) {
+                await updatePlayerName(connectionId, gameId, name, apiGatewayEvent, sessionId);
+            } else {
+                await sendMessageToClient(connectionId, { action: 'error', message: 'gameId and name are required for updatePlayerName action.' }, apiGatewayEvent);
+            }
+            break;
+        case 'heartbeat':
+            await heartbeat(connectionId, apiGatewayEvent, sessionId);
+            break;
+        case 'chooseWord':
+            if (gameId && word) {
+                await chooseWord(connectionId, gameId, word, apiGatewayEvent);
+            } else {
+                await sendMessageToClient(connectionId, { action: 'error', message: 'gameId and word are required for chooseWord action.' }, apiGatewayEvent);
+            }
+            break;
+        case 'updateHint':
+            if (gameId) {
+                await updateHint(gameId, apiGatewayEvent);
+            } else {
+                await sendMessageToClient(connectionId, { action: 'error', message: 'gameId is required for updateHint action.' }, apiGatewayEvent);
+            }
+            break;
+        case 'submitGuess':
+            if (gameId && guess) {
+                await submitGuess(connectionId, gameId, guess, apiGatewayEvent);
+            } else {
+                await sendMessageToClient(connectionId, { action: 'error', message: 'gameId and guess are required for submitGuess action.' }, apiGatewayEvent);
+            }
+            break;
+        case 'submitEmoji':
+            if (gameId && emoji) {
+                await submitEmoji(connectionId, gameId, emoji, apiGatewayEvent);
+            } else {
+                await sendMessageToClient(connectionId, { action: 'error', message: 'gameId and emoji are required for submitEmoji action.' }, apiGatewayEvent);
+            }
+            break;
+        case 'timeUp':
+            if (gameId) {
+                await handleTimeUp(gameId, apiGatewayEvent);
+            } else {
+                await sendMessageToClient(connectionId, { action: 'error', message: 'gameId is required for timeUp action.' }, apiGatewayEvent);
+            }
+            break;
+        default:
+            await sendMessageToClient(connectionId, { action: 'error', message: `Unknown action: ${action}` }, apiGatewayEvent);
+            break;
+    }
+
+    return { statusCode: 200, body: 'Message handled.' };
+};
+

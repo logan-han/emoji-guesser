@@ -1,0 +1,83 @@
+
+service: emoji-guesser-backend
+frameworkVersion: '4'
+
+build:
+  esbuild: false
+
+provider:
+  name: aws
+  runtime: nodejs20.x
+  stage: dev
+  region: ap-southeast-4
+  websocketsApiName: emoji-guesser-ws
+  websocketsApiRouteSelectionExpression: $request.body.action
+  iam:
+    role:
+      statements:
+        - Effect: "Allow"
+          Action:
+            - "dynamodb:Query"
+            - "dynamodb:Scan"
+            - "dynamodb:GetItem"
+            - "dynamodb:PutItem"
+            - "dynamodb:UpdateItem"
+            - "dynamodb:DeleteItem"
+          Resource: "arn:aws:dynamodb:${aws:region}:${aws:accountId}:table/emoji-guesser-games-${sls:stage}"
+        - Effect: "Allow"
+          Action:
+            - "execute-api:ManageConnections"
+          Resource:
+            - "arn:aws:execute-api:${aws:region}:${aws:accountId}:*/*"
+
+plugins:
+  - serverless-webpack
+
+package:
+  individually: true
+
+functions:
+  connect:
+    handler: src/websockets.connect
+    events:
+      - websocket:
+          route: $connect
+  disconnect:
+    handler: src/websockets.disconnect
+    events:
+      - websocket:
+          route: $disconnect
+  default:
+    handler: src/websockets.default_handler
+    events:
+      - websocket:
+          route: $default
+
+custom:
+  webpack:
+    webpackConfig: ./webpack.config.js
+    includeModules: true
+  dynamodb:
+    dev:
+      readCapacity: 1
+      writeCapacity: 1
+    prod:
+      readCapacity: 10
+      writeCapacity: 10
+
+resources:
+  Resources:
+    GamesTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: emoji-guesser-games-${sls:stage}
+        AttributeDefinitions:
+          - AttributeName: gameId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: gameId
+            KeyType: HASH
+        BillingMode: PROVISIONED
+        ProvisionedThroughput:
+          ReadCapacityUnits: ${self:custom.dynamodb.${sls:stage}.readCapacity}
+          WriteCapacityUnits: ${self:custom.dynamodb.${sls:stage}.writeCapacity}
