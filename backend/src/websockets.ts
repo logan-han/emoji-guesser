@@ -703,6 +703,75 @@ async function updateHint(gameId: string, event: APIGatewayEvent) {
     }
 }
 
+async function restartGame(connectionId: string, gameId: string, event: APIGatewayEvent, sessionId?: string, timeLimit?: number) {
+    const getParams = { TableName: GAMES_TABLE, Key: { gameId } };
+
+    try {
+        const result = await dynamoDb.get(getParams).promise();
+        if (!result.Item) {
+            await sendMessageToClient(connectionId, { action: 'error', message: 'Game not found.' }, event);
+            return;
+        }
+
+        const game = result.Item;
+
+        // Check ownership by both connectionId and sessionId
+        const isOwner = game.ownerId === connectionId || 
+                       (sessionId && game.ownerSessionId === sessionId);
+        
+        if (!isOwner) {
+            await sendMessageToClient(connectionId, { action: 'error', message: 'Only the owner can restart the game.' }, event);
+            return;
+        }
+
+        if (game.gameState !== 'ENDED') {
+            await sendMessageToClient(connectionId, { action: 'error', message: 'Can only restart ended games.' }, event);
+            return;
+        }
+
+        // Reset game state but keep the same players
+        game.gameState = 'WAITING';
+        game.currentRound = undefined;
+        game.maxRounds = undefined;
+        game.currentDescriberIndex = undefined;
+        game.turnState = undefined;
+        game.turnStartTime = undefined;
+        game.endedAt = undefined;
+        
+        // Reset player scores but keep their names and session info
+        game.players.forEach((player: any) => {
+            player.score = 0;
+            player.lastSeen = new Date().toISOString();
+        });
+
+        // Update timeLimit if provided
+        if (timeLimit !== undefined) {
+            game.timeLimit = timeLimit;
+        }
+
+        // Clean up game state
+        const updateParams = {
+            TableName: GAMES_TABLE,
+            Key: { gameId },
+            UpdateExpression: 'set gameState = :s, players = :p, timeLimit = :tl REMOVE currentRound, maxRounds, currentDescriberIndex, turnState, turnStartTime, endedAt, secretWord, wordOptions, currentHint',
+            ExpressionAttributeValues: {
+                ':s': game.gameState,
+                ':p': game.players,
+                ':tl': game.timeLimit
+            },
+        };
+
+        await dynamoDb.update(updateParams).promise();
+        console.log(`Game ${gameId} restarted`);
+
+        const playerIds = game.players.map((p: any) => p.connectionId);
+        await broadcastToPlayers(playerIds, { action: 'gameRestarted', game }, event);
+
+    } catch (error) {
+        console.error(`Failed to restart game ${gameId}:`, error);
+        await sendMessageToClient(connectionId, { action: 'error', message: 'Could not restart game.' }, event);
+    }
+}
 
 // --- Default Message Handler ---
 
@@ -787,6 +856,13 @@ export const default_handler: APIGatewayProxyHandler = async (event) => {
                 await handleTimeUp(gameId, apiGatewayEvent);
             } else {
                 await sendMessageToClient(connectionId, { action: 'error', message: 'gameId is required for timeUp action.' }, apiGatewayEvent);
+            }
+            break;
+        case 'restartGame':
+            if (gameId) {
+                await restartGame(connectionId, gameId, apiGatewayEvent, sessionId, timeLimit);
+            } else {
+                await sendMessageToClient(connectionId, { action: 'error', message: 'gameId is required for restartGame action.' }, apiGatewayEvent);
             }
             break;
         default:

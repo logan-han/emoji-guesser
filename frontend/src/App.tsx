@@ -4,6 +4,7 @@ import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
 
 interface Player {
   connectionId: string;
+  sessionId?: string;
   name: string;
   score: number;
 }
@@ -422,6 +423,14 @@ const App: React.FC = () => {
            (sessionId && game.ownerSessionId === sessionId);
   };
 
+  // Helper function to check if a specific player is the game owner
+  const isPlayerGameOwner = (player: Player) => {
+    if (!game) return false;
+    // Check if the player is the owner by connectionId or sessionId
+    return game.ownerId === player.connectionId || 
+           (player.sessionId && game.ownerSessionId === player.sessionId);
+  };
+
   const handleEmojiSelect = (emoji: string) => {
     if (game) {
       sendMessage({ action: 'submitEmoji', gameId: game.gameId, emoji });
@@ -577,13 +586,17 @@ const App: React.FC = () => {
                           onClick={() => setEditingName(true)}
                           title="Click to edit your name"
                         >
+                          {isPlayerGameOwner(player) && <span className="host-crown" title="Game Host">👑 </span>}
                           {playerName || player.name}
                           <small className="edit-hint"> (click to edit)</small>
                         </span>
                       )}
                     </div>
                   ) : (
-                    <span className="player-name">{player.name}</span>
+                    <span className="player-name">
+                      {isPlayerGameOwner(player) && <span className="host-crown" title="Game Host">👑 </span>}
+                      {player.name}
+                    </span>
                   )}
                   <span className="player-score">Score: {player.score}</span>
                   {isCurrentPlayer(player) && <span className="you-indicator">👤 You</span>}

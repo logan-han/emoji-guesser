@@ -10,6 +10,7 @@ export interface Player {
 export interface Game {
   gameId: string;
   ownerId: string;
+  ownerSessionId?: string;
   players: Player[];
   gameState: 'WAITING' | 'IN_PROGRESS' | 'ENDED';
   currentRound?: number;
