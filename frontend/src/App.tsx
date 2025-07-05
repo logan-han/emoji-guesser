@@ -1,6 +1,7 @@
 import React, { useState, useEffect, FormEvent, useRef } from 'react';
 import './App.css';
 import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
+import { playSound } from './sounds';
 
 interface Player {
   connectionId: string;
@@ -214,6 +215,9 @@ const App: React.FC = () => {
         window.history.pushState({}, '', `?gameId=${data.game.gameId}`);
         break;
       case 'playerJoined':
+        playSound('playerJoined');
+        setGame(data.game);
+        break;
       case 'playerNameUpdated':
       case 'playerReconnected':
         setGame(data.game);
@@ -223,6 +227,7 @@ const App: React.FC = () => {
         console.log('Player joined/updated/reconnected:', data.game);
         break;
       case 'gameStarted':
+        playSound('gameStart');
         setGame(data.game);
         setEmojis([]); // Clear emojis from previous rounds
         setMessages([
@@ -278,12 +283,15 @@ const App: React.FC = () => {
         setCurrentHint(data.hint);
         break;
       case 'newEmoji':
+        playSound('emojiSelect');
         setEmojis(prev => [...prev, data.emoji]);
         break;
       case 'newGuess':
+        playSound('newGuess');
         setMessages(prev => [...prev, { text: data.text, type: 'guess', timestamp: Date.now() }]);
         break;
       case 'wordGuessed':
+        playSound('correctGuess');
         setMessages(prev => [...prev, { 
           text: `🎉 ${data.guesserName} guessed correctly!`, 
           type: 'system', 
@@ -312,6 +320,7 @@ const App: React.FC = () => {
         }
         break;
       case 'gameEnded':
+        playSound('gameEnd');
         setGame(data.game);
         setIsDescriber(false);
         setIsChoosingWord(false);
@@ -368,14 +377,17 @@ const App: React.FC = () => {
   };
 
   const createGame = () => {
+    playSound('buttonClick');
     sendMessage({ action: 'createGame', sessionId, timeLimit });
   };
 
   const startGame = () => {
+    playSound('buttonClick');
     if (game) sendMessage({ action: 'startGame', gameId: game.gameId, sessionId, timeLimit });
   };
 
   const joinGameById = () => {
+    playSound('buttonClick');
     if (gameIdInput) {
       sendMessage({ action: 'joinGame', gameId: gameIdInput, sessionId, playerName: playerName || undefined });
       setGameIdInput('');
