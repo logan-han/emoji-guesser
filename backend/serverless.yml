@@ -12,6 +12,8 @@ provider:
   region: ap-southeast-4
   websocketsApiName: emoji-guesser-ws
   websocketsApiRouteSelectionExpression: $request.body.action
+  environment:
+    GAMES_TABLE: emoji-guesser-games-${sls:stage}
   iam:
     role:
       statements:
