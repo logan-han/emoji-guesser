@@ -249,13 +249,16 @@ async function startGame(connectionId: string, gameId: string, event: APIGateway
             return;
         }
 
-        if (game.players.length < 2) {
-            await sendMessageToClient(connectionId, { action: 'error', message: 'You need at least 2 players to start.' }, event);
+        if (game.players.filter((p: any) => p.readyToRestart !== false).length < 2) {
+            await sendMessageToClient(connectionId, { action: 'error', message: 'You need at least 2 ready players to start.' }, event);
             return;
         }
 
-        // Shuffle players for random turn order
-        const shuffledPlayers = [...game.players].sort(() => Math.random() - 0.5);
+        // Filter to only include ready players
+        const readyPlayers = game.players.filter((p: any) => p.readyToRestart !== false);
+        
+        // Shuffle ready players for random turn order
+        const shuffledPlayers = [...readyPlayers].sort(() => Math.random() - 0.5);
         
         game.gameState = 'IN_PROGRESS';
         game.currentRound = 1;
@@ -361,7 +364,7 @@ async function chooseWord(connectionId: string, gameId: string, word: string, ev
         await dynamoDb.update(updateParams).promise();
 
         const describerId = game.players[game.currentDescriberIndex].connectionId;
-        await sendMessageToClient(describerId, { action: 'describeWord', word: game.secretWord }, event);
+        await sendMessageToClient(describerId, { action: 'describeWord', word: game.secretWord, game }, event);
 
         // Notify all other players that the turn has started with the hint
         const playerIds = game.players.map((p: any) => p.connectionId);
@@ -459,7 +462,7 @@ async function nextTurn(game: any, event: APIGatewayEvent) {
         const updateParams = {
             TableName: GAMES_TABLE,
             Key: { gameId: game.gameId },
-            UpdateExpression: 'set gameState = :s',
+            UpdateExpression: 'set gameState = :s REMOVE turnState, turnStartTime, secretWord, currentHint, wordOptions',
             ExpressionAttributeValues: { ':s': 'ENDED' },
         };
         
@@ -641,6 +644,29 @@ async function handleTimeUp(gameId: string, event: APIGatewayEvent) {
             return; // Round already ended
         }
 
+        // Add a timestamp check to prevent multiple timeUp events from being processed
+        // If the turn started more than timeLimit seconds ago, then time is definitely up
+        const turnStartTime = new Date(game.turnStartTime).getTime();
+        const currentTime = Date.now();
+        const elapsedSeconds = Math.floor((currentTime - turnStartTime) / 1000);
+        
+        if (elapsedSeconds < game.timeLimit) {
+            // Still within time limit, ignore premature timeUp
+            console.log(`Ignoring premature timeUp for game ${gameId}. Elapsed: ${elapsedSeconds}s, Limit: ${game.timeLimit}s`);
+            return;
+        }
+
+        // Mark the turn as ended to prevent duplicate processing
+        game.turnState = 'ENDING';
+        
+        const updateParams = {
+            TableName: GAMES_TABLE,
+            Key: { gameId },
+            UpdateExpression: 'set turnState = :t',
+            ExpressionAttributeValues: { ':t': game.turnState },
+        };
+        await dynamoDb.update(updateParams).promise();
+
         // End the current round due to timeout
         const playerIds = game.players.map((p: any) => p.connectionId);
         await broadcastToPlayers(playerIds, { 
@@ -667,36 +693,34 @@ async function updateHint(gameId: string, event: APIGatewayEvent) {
         const game = result.Item;
         
         // Only update hint if game is in describing state
-        if (game.turnState !== 'DESCRIBING' || !game.secretWord) {
+        if (game.turnState !== 'DESCRIBING' || !game.secretWord || !game.turnStartTime) {
             return;
         }
 
         const timeElapsed = Date.now() - new Date(game.turnStartTime).getTime();
         const newHint = generateHint(game.secretWord, timeElapsed, game.timeLimit * 1000);
         
-        // Only update if hint has changed
-        if (newHint !== game.currentHint) {
-            game.currentHint = newHint;
-            
-            const updateParams = {
-                TableName: GAMES_TABLE,
-                Key: { gameId },
-                UpdateExpression: 'set currentHint = :h',
-                ExpressionAttributeValues: { ':h': game.currentHint },
-            };
+        // Update hint in database regardless of whether it changed (to maintain consistency)
+        game.currentHint = newHint;
+        
+        const updateParams = {
+            TableName: GAMES_TABLE,
+            Key: { gameId },
+            UpdateExpression: 'set currentHint = :h',
+            ExpressionAttributeValues: { ':h': game.currentHint },
+        };
 
-            await dynamoDb.update(updateParams).promise();
+        await dynamoDb.update(updateParams).promise();
 
-            // Broadcast updated hint to all non-describer players
-            const playerIds = game.players.map((p: any) => p.connectionId);
-            const describerId = game.players[game.currentDescriberIndex].connectionId;
-            const nonDescriberIds = playerIds.filter((id: string) => id !== describerId);
-            
-            await broadcastToPlayers(nonDescriberIds, { 
-                action: 'hintUpdated', 
-                hint: game.currentHint
-            }, event);
-        }
+        // Broadcast updated hint to all non-describer players
+        const playerIds = game.players.map((p: any) => p.connectionId);
+        const describerId = game.players[game.currentDescriberIndex].connectionId;
+        const nonDescriberIds = playerIds.filter((id: string) => id !== describerId);
+        
+        await broadcastToPlayers(nonDescriberIds, { 
+            action: 'hintUpdated', 
+            hint: game.currentHint
+        }, event);
 
     } catch (error) {
         console.error(`Failed to update hint for game ${gameId}:`, error);
@@ -720,10 +744,78 @@ async function restartGame(connectionId: string, gameId: string, event: APIGatew
                        (sessionId && game.ownerSessionId === sessionId);
         
         if (!isOwner) {
-            await sendMessageToClient(connectionId, { action: 'error', message: 'Only the owner can restart the game.' }, event);
-            return;
+            // If not owner, allow player to rejoin if game is ended
+            if (game.gameState === 'ENDED') {
+                // Find if this player was in the game before
+                const existingPlayer = game.players.find((p: any) => 
+                    p.connectionId === connectionId || 
+                    (sessionId && p.sessionId === sessionId)
+                );
+                
+                if (existingPlayer) {
+                    // Player rejoining - update their connection info and mark as ready
+                    existingPlayer.connectionId = connectionId;
+                    existingPlayer.lastSeen = new Date().toISOString();
+                    existingPlayer.readyToRestart = true;
+                    
+                    // Check if this is the first player to rejoin and there's no active owner
+                    const activeOwner = game.players.find((p: any) => 
+                        (p.connectionId === game.ownerId || 
+                         (p.sessionId && p.sessionId === game.ownerSessionId)) &&
+                        p.readyToRestart
+                    );
+                    
+                    if (!activeOwner) {
+                        // Make this player the new owner
+                        game.ownerId = connectionId;
+                        game.ownerSessionId = sessionId;
+                    }
+                    
+                    const updateParams = {
+                        TableName: GAMES_TABLE,
+                        Key: { gameId },
+                        UpdateExpression: 'set players = :p, ownerId = :o, ownerSessionId = :os',
+                        ExpressionAttributeValues: {
+                            ':p': game.players,
+                            ':o': game.ownerId,
+                            ':os': game.ownerSessionId
+                        },
+                    };
+
+                    await dynamoDb.update(updateParams).promise();
+                    
+                    // Send rejoin confirmation to this player
+                    await sendMessageToClient(connectionId, { 
+                        action: 'gameRestarted', 
+                        game,
+                        isNewOwner: game.ownerId === connectionId
+                    }, event);
+                    
+                    // Notify other players that someone rejoined
+                    const otherPlayerIds = game.players
+                        .filter((p: any) => p.connectionId !== connectionId && p.readyToRestart)
+                        .map((p: any) => p.connectionId);
+                    
+                    if (otherPlayerIds.length > 0) {
+                        await broadcastToPlayers(otherPlayerIds, { 
+                            action: 'playerRejoined', 
+                            game,
+                            rejoinedPlayer: existingPlayer.name
+                        }, event);
+                    }
+                    
+                    return;
+                } else {
+                    await sendMessageToClient(connectionId, { action: 'error', message: 'You were not in this game.' }, event);
+                    return;
+                }
+            } else {
+                await sendMessageToClient(connectionId, { action: 'error', message: 'Only the owner can restart the game.' }, event);
+                return;
+            }
         }
 
+        // Owner restarting the game
         if (game.gameState !== 'ENDED') {
             await sendMessageToClient(connectionId, { action: 'error', message: 'Can only restart ended games.' }, event);
             return;
@@ -738,10 +830,12 @@ async function restartGame(connectionId: string, gameId: string, event: APIGatew
         game.turnStartTime = undefined;
         game.endedAt = undefined;
         
-        // Reset player scores but keep their names and session info
+        // Reset player scores and mark owner as ready, others as not ready
         game.players.forEach((player: any) => {
             player.score = 0;
             player.lastSeen = new Date().toISOString();
+            player.readyToRestart = player.connectionId === connectionId || 
+                                   (sessionId && player.sessionId === sessionId);
         });
 
         // Update timeLimit if provided
@@ -762,10 +856,10 @@ async function restartGame(connectionId: string, gameId: string, event: APIGatew
         };
 
         await dynamoDb.update(updateParams).promise();
-        console.log(`Game ${gameId} restarted`);
+        console.log(`Game ${gameId} restarted by owner`);
 
-        const playerIds = game.players.map((p: any) => p.connectionId);
-        await broadcastToPlayers(playerIds, { action: 'gameRestarted', game }, event);
+        // Only notify the owner initially
+        await sendMessageToClient(connectionId, { action: 'gameRestarted', game }, event);
 
     } catch (error) {
         console.error(`Failed to restart game ${gameId}:`, error);

@@ -35,53 +35,68 @@ export function getRandomWords(): string[] {
 
 /**
  * Generates hint pattern for a word
- * Shows blanks initially, then gradually reveals letters up to 50%
+ * Shows blanks initially, then gradually reveals letters at stable intervals
+ * Maintains previously revealed letters
  */
 export function generateHint(word: string, timeElapsed: number, totalTime: number): string {
   const normalizedWord = word.toLowerCase();
   const wordLength = normalizedWord.length;
   
-  // Calculate how many letters to reveal based on time elapsed
-  const maxRevealCount = Math.floor(wordLength * 0.5); // Maximum 50% of letters
-  const timeProgress = Math.min(timeElapsed / totalTime, 1); // 0 to 1
+  // Calculate stable intervals - reveal one letter every interval
+  const maxRevealCount = Math.max(1, Math.floor(wordLength * 0.7)); // Maximum 70% of letters, at least 1
+  const revealInterval = totalTime / maxRevealCount; // How often to reveal a letter
   
-  // Reveal letters gradually, but not immediately
-  const revealStartThreshold = 0.2; // Start revealing after 20% of time
-  let lettersToReveal = 0;
-  
-  if (timeProgress > revealStartThreshold) {
-    const revealProgress = (timeProgress - revealStartThreshold) / (1 - revealStartThreshold);
-    lettersToReveal = Math.floor(revealProgress * maxRevealCount);
-  }
+  // Calculate how many letters should be revealed based on time elapsed
+  let lettersToReveal = Math.floor(timeElapsed / revealInterval);
+  lettersToReveal = Math.min(lettersToReveal, maxRevealCount);
   
   if (lettersToReveal === 0) {
     // Show only blanks initially
     return normalizedWord.replace(/./g, '_ ').trim();
   }
   
-  // Determine which letters to reveal (prefer unique letters and avoid consecutive)
-  const letterPositions: number[] = [];
+  // Create a deterministic but random-looking order for revealing letters
+  // This ensures the same word always reveals letters in the same order
+  const letterPositions: { pos: number; priority: number }[] = [];
+  const vowels = new Set(['a', 'e', 'i', 'o', 'u']);
   const seenLetters = new Set<string>();
   
-  // First pass: add positions of unique letters
+  // Create a simple hash from the word to ensure consistent ordering
+  let wordHash = 0;
+  for (let i = 0; i < normalizedWord.length; i++) {
+    wordHash = (wordHash * 31 + normalizedWord.charCodeAt(i)) % 1000;
+  }
+  
+  // Assign priority to each position
   for (let i = 0; i < wordLength; i++) {
     const letter = normalizedWord[i];
+    let priority = 0;
+    
+    // Higher priority for vowels
+    if (vowels.has(letter)) priority += 3;
+    
+    // Higher priority for unique letters
     if (!seenLetters.has(letter)) {
-      letterPositions.push(i);
+      priority += 2;
       seenLetters.add(letter);
     }
+    
+    // Prefer letters not at the beginning or end for variety
+    if (i > 0 && i < wordLength - 1) priority += 1;
+    
+    // Add position-based variance using word hash for consistency
+    priority += ((wordHash + i * 7) % 10) / 10;
+    
+    letterPositions.push({ pos: i, priority });
   }
   
-  // Second pass: add remaining positions if needed
-  for (let i = 0; i < wordLength && letterPositions.length < wordLength; i++) {
-    if (!letterPositions.includes(i)) {
-      letterPositions.push(i);
-    }
-  }
+  // Sort by priority (highest first) for consistent ordering
+  letterPositions.sort((a, b) => b.priority - a.priority);
   
-  // Shuffle and take the number we need to reveal
-  const shuffledPositions = letterPositions.sort(() => Math.random() - 0.5);
-  const positionsToReveal = new Set(shuffledPositions.slice(0, lettersToReveal));
+  // Select positions to reveal based on count
+  const positionsToReveal = new Set(
+    letterPositions.slice(0, lettersToReveal).map(item => item.pos)
+  );
   
   // Build the hint string
   return normalizedWord

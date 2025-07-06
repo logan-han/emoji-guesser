@@ -935,6 +935,15 @@
   justify-content: center;
 }
 
+/* Waiting players note */
+.waiting-players-note {
+  color: #6b7280;
+  font-style: italic;
+  font-size: 0.9rem;
+  margin-bottom: 15px;
+  text-align: center;
+}
+
 /* Mobile responsiveness for new components */
 @media (max-width: 768px) {
   .word-options {

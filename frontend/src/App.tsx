@@ -1,4 +1,4 @@
-import React, { useState, useEffect, FormEvent, useRef } from 'react';
+import React, { useState, useEffect, FormEvent, useRef, useCallback } from 'react';
 import './App.css';
 import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
 import { playSound } from './sounds';
@@ -8,6 +8,7 @@ interface Player {
   sessionId?: string;
   name: string;
   score: number;
+  readyToRestart?: boolean;
 }
 
 interface Game {
@@ -146,17 +147,21 @@ const App: React.FC = () => {
     }
   }, [messages]);
 
-  const sendMessage = (message: any) => {
+  const sendMessage = useCallback((message: any) => {
     if (ws && connected) {
       ws.send(JSON.stringify(message));
     }
-  };
+  }, [ws, connected]);
 
-  const startRoundTimer = (gameState: Game) => {
+  const startRoundTimer = useCallback((gameState: Game) => {
     // Clear any existing timer
-    clearRoundTimer();
+    if (timerInterval) {
+      clearInterval(timerInterval);
+      setTimerInterval(null);
+    }
+    setRoundTimeLeft(null);
     
-    if (gameState.turnStartTime && gameState.timeLimit && gameState.turnState === 'DESCRIBING') {
+    if (gameState.turnStartTime && gameState.timeLimit) {
       const startTime = new Date(gameState.turnStartTime).getTime();
       const now = Date.now();
       const elapsed = Math.floor((now - startTime) / 1000);
@@ -168,34 +173,50 @@ const App: React.FC = () => {
         const interval = setInterval(() => {
           setRoundTimeLeft(prev => {
             if (prev === null || prev <= 1) {
-              clearRoundTimer();
-              // Time's up! Notify server
-              if (game) {
-                sendMessage({ action: 'timeUp', gameId: game.gameId });
+              // Clear the timer when time is up
+              clearInterval(interval);
+              setTimerInterval(null);
+              setRoundTimeLeft(0);
+              
+              // Time's up! All players should notify server for redundancy, but server will handle deduplication
+              if (gameState.gameId) {
+                sendMessage({ action: 'timeUp', gameId: gameState.gameId });
               }
               return 0;
             }
             return prev - 1;
           });
-          
-          // Request hint update every second during describing phase
-          if (game && game.turnState === 'DESCRIBING') {
-            sendMessage({ action: 'updateHint', gameId: game.gameId });
-          }
         }, 1000);
         
         setTimerInterval(interval);
+      } else {
+        // Time already up when starting timer
+        setRoundTimeLeft(0);
+        if (gameState.gameId) {
+          sendMessage({ action: 'timeUp', gameId: gameState.gameId });
+        }
       }
     }
-  };
+  }, [sendMessage, timerInterval]);
 
-  const clearRoundTimer = () => {
+  useEffect(() => {
+    if (game && game.turnState === 'DESCRIBING' && game.gameId) {
+      // Update hint more frequently to ensure smooth progression
+      // The backend will calculate the appropriate hint based on time elapsed
+      const hintInterval = setInterval(() => {
+        sendMessage({ action: 'updateHint', gameId: game.gameId });
+      }, 2000); // Update hint every 2 seconds for smoother updates
+      return () => clearInterval(hintInterval);
+    }
+  }, [game, sendMessage]);
+
+  const clearRoundTimer = useCallback(() => {
     if (timerInterval) {
       clearInterval(timerInterval);
       setTimerInterval(null);
     }
     setRoundTimeLeft(null);
-  };
+  }, [timerInterval]);
 
   const onEmojiClick = (emojiData: EmojiClickData) => {
     if (game) {
@@ -349,6 +370,21 @@ const App: React.FC = () => {
         setGuess('');
         setMessages([]);
         clearRoundTimer();
+        if (data.isNewOwner) {
+          setMessages(prev => [...prev, { 
+            text: '👑 You are now the game owner!', 
+            type: 'system', 
+            timestamp: Date.now() 
+          }]);
+        }
+        break;
+      case 'playerRejoined':
+        setGame(data.game);
+        setMessages(prev => [...prev, { 
+          text: `🔄 ${data.rejoinedPlayer} has rejoined the game!`, 
+          type: 'system', 
+          timestamp: Date.now() 
+        }]);
         break;
       case 'timeUp':
         setMessages(prev => [...prev, { 
@@ -567,9 +603,16 @@ const App: React.FC = () => {
           )}
           
           <div className="players-section">
-            <h3>👥 Players ({game.players.length})</h3>
+            <h3>👥 Players ({game.players.filter((p: Player) => p.readyToRestart !== false).length})</h3>
+            {game.players.filter((p: Player) => p.readyToRestart === false).length > 0 && (
+              <p className="waiting-players-note">
+                🔄 {game.players.filter((p: Player) => p.readyToRestart === false).length} player(s) waiting to rejoin
+              </p>
+            )}
             <div className="players-list">
-              {game.players.map((player, index) => (
+              {game.players
+                .filter((player: Player) => player.readyToRestart !== false)
+                .map((player, index) => (
                 <div key={index} className="player-card">
                   {isCurrentPlayer(player) ? (
                     <div className="player-name-section">
@@ -629,13 +672,15 @@ const App: React.FC = () => {
             </div>
           </div>
           
-          {isGameOwner() && game.players.length > 1 && (
+          {isGameOwner() && game.players.filter((p: Player) => p.readyToRestart !== false).length > 1 && (
             <button 
               onClick={startGame} 
-              disabled={game.players.length < 2}
+              disabled={game.players.filter((p: Player) => p.readyToRestart !== false).length < 2}
               className="start-game-btn"
             >
-              {game.players.length < 2 ? 'Need at least 2 players' : 'Start Game 🚀'}
+              {game.players.filter((p: Player) => p.readyToRestart !== false).length < 2 
+                ? 'Need at least 2 players' 
+                : 'Start Game 🚀'}
             </button>
           )}
         </div>
@@ -691,6 +736,10 @@ const App: React.FC = () => {
                         searchPlaceholder="Search emojis..."
                         width="100%"
                         height={400}
+                        previewConfig={{
+                          showPreview: false
+                        }}
+                        skinTonesDisabled
                       />
                     </div>
                     
@@ -789,7 +838,7 @@ const App: React.FC = () => {
           </div>
           <div className="game-ended-actions">
             <button onClick={playAgain} className="play-again-btn">
-              Play Again
+              {isGameOwner() ? 'Play Again' : 'Rejoin Game'}
             </button>
             <button onClick={backToLobby} className="back-to-lobby-btn">
               Back to Lobby
