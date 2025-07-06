@@ -6,6 +6,9 @@ import { getRandomWords, generateHint } from './dictionary';
 const dynamoDb = new AWS.DynamoDB.DocumentClient();
 const GAMES_TABLE = process.env.GAMES_TABLE || 'emoji-guesser-games';
 
+// Store active timeouts to prevent memory leaks
+const activeTimeouts = new Map<string, NodeJS.Timeout>();
+
 // --- Helper Functions ---
 
 const getApiGatewayManagementApi = (event: APIGatewayEvent) => {
@@ -32,6 +35,82 @@ const sendMessageToClient = async (connectionId: string, payload: any, event: AP
 const broadcastToPlayers = async (playerIds: string[], payload: any, event: APIGatewayEvent) => {
     const broadcastPromises = playerIds.map(id => sendMessageToClient(id, payload, event));
     await Promise.all(broadcastPromises);
+};
+
+const scheduleRoundTimeout = (gameId: string, timeLimit: number) => {
+    // Clear any existing timeout for this game
+    const existingTimeout = activeTimeouts.get(gameId);
+    if (existingTimeout) {
+        clearTimeout(existingTimeout);
+    }
+
+    // Schedule a new timeout
+    const timeout = setTimeout(async () => {
+        console.log(`Server-side timeout triggered for game ${gameId}`);
+        try {
+            // Check if the game is still in DESCRIBING state
+            const getParams = { TableName: GAMES_TABLE, Key: { gameId } };
+            const result = await dynamoDb.get(getParams).promise();
+            
+            if (result.Item && result.Item.turnState === 'DESCRIBING') {
+                // End the round due to timeout
+                await forceEndRound(gameId);
+            }
+        } catch (error) {
+            console.error(`Error in server-side timeout for game ${gameId}:`, error);
+        } finally {
+            // Clean up the timeout reference
+            activeTimeouts.delete(gameId);
+        }
+    }, timeLimit * 1000);
+
+    activeTimeouts.set(gameId, timeout);
+};
+
+const forceEndRound = async (gameId: string) => {
+    try {
+        const getParams = { TableName: GAMES_TABLE, Key: { gameId } };
+        const result = await dynamoDb.get(getParams).promise();
+        
+        if (!result.Item || result.Item.turnState !== 'DESCRIBING') {
+            return; // Game already ended or not in describing state
+        }
+
+        const game = result.Item;
+        
+        // Mark the turn as ended
+        game.turnState = 'ENDING';
+        
+        const updateParams = {
+            TableName: GAMES_TABLE,
+            Key: { gameId },
+            UpdateExpression: 'set turnState = :t',
+            ExpressionAttributeValues: { ':t': game.turnState },
+        };
+        await dynamoDb.update(updateParams).promise();
+
+        // Create a minimal event object for broadcasting
+        const mockEvent = {
+            requestContext: {
+                domainName: process.env.API_GATEWAY_DOMAIN || 'localhost',
+                stage: process.env.API_GATEWAY_STAGE || 'dev'
+            }
+        } as APIGatewayEvent;
+
+        // Broadcast timeout message
+        const playerIds = game.players.map((p: any) => p.connectionId);
+        await broadcastToPlayers(playerIds, { 
+            action: 'timeUp', 
+            message: "⏰ Time's up! Moving to next turn...",
+            word: game.secretWord
+        }, mockEvent);
+
+        // Move to next turn
+        await nextTurn(game, mockEvent);
+
+    } catch (error) {
+        console.error(`Failed to force end round for game ${gameId}:`, error);
+    }
 };
 
 
@@ -179,7 +258,7 @@ async function joinGame(connectionId: string, gameId: string, event: APIGatewayE
                     if (game.turnState === 'CHOOSING_WORD' && game.wordOptions) {
                         await sendMessageToClient(connectionId, { action: 'chooseWord', wordOptions: game.wordOptions }, event);
                     } else if (game.turnState === 'DESCRIBING' && game.secretWord) {
-                        await sendMessageToClient(connectionId, { action: 'describeWord', word: game.secretWord }, event);
+                        await sendMessageToClient(connectionId, { action: 'describeWord', word: game.secretWord, game }, event);
                     }
                 } else if (game.turnState === 'DESCRIBING' && game.currentHint) {
                     // Send current hint to non-describer players
@@ -383,6 +462,37 @@ async function chooseWord(connectionId: string, gameId: string, word: string, ev
             timestamp: Date.now()
         }, event);
 
+        // Schedule a server-side timeout to ensure the round ends even if no client sends timeUp
+        scheduleRoundTimeout(gameId, game.timeLimit);
+        
+        // Also schedule additional backup timeouts at different intervals for redundancy
+        // This ensures the round ends even in unreliable serverless environments
+        setTimeout(async () => {
+            try {
+                const checkParams = { TableName: GAMES_TABLE, Key: { gameId } };
+                const checkResult = await dynamoDb.get(checkParams).promise();
+                if (checkResult.Item && checkResult.Item.turnState === 'DESCRIBING') {
+                    console.log(`Backup timeout 1 triggered for game ${gameId}`);
+                    await handleTimeUp(gameId, event);
+                }
+            } catch (error) {
+                console.error(`Backup timeout 1 error for game ${gameId}:`, error);
+            }
+        }, (game.timeLimit + 5) * 1000); // 5 seconds after time limit
+        
+        setTimeout(async () => {
+            try {
+                const checkParams = { TableName: GAMES_TABLE, Key: { gameId } };
+                const checkResult = await dynamoDb.get(checkParams).promise();
+                if (checkResult.Item && checkResult.Item.turnState === 'DESCRIBING') {
+                    console.log(`Backup timeout 2 triggered for game ${gameId}`);
+                    await handleTimeUp(gameId, event);
+                }
+            } catch (error) {
+                console.error(`Backup timeout 2 error for game ${gameId}:`, error);
+            }
+        }, (game.timeLimit + 15) * 1000); // 15 seconds after time limit
+
         // Start hint update timer
         await startHintTimer(gameId, event);
 
@@ -454,6 +564,13 @@ async function submitGuess(connectionId: string, gameId: string, guess: string, 
 }
 
 async function nextTurn(game: any, event: APIGatewayEvent) {
+    // Clear any active timeout for this game
+    const existingTimeout = activeTimeouts.get(game.gameId);
+    if (existingTimeout) {
+        clearTimeout(existingTimeout);
+        activeTimeouts.delete(game.gameId);
+    }
+
     // Check if all players have had their turn
     if (game.currentRound >= game.maxRounds) {
         // Game ended
@@ -635,26 +752,32 @@ async function handleTimeUp(gameId: string, event: APIGatewayEvent) {
 
     try {
         const result = await dynamoDb.get(getParams).promise();
-        if (!result.Item) { return; }
+        if (!result.Item) { 
+            console.log(`Game ${gameId} not found during timeUp`);
+            return; 
+        }
 
         const game = result.Item;
         
         // Check if game is still in describing state
         if (game.turnState !== 'DESCRIBING') {
+            console.log(`Game ${gameId} not in DESCRIBING state during timeUp (current: ${game.turnState})`);
             return; // Round already ended
         }
 
-        // Add a timestamp check to prevent multiple timeUp events from being processed
-        // If the turn started more than timeLimit seconds ago, then time is definitely up
+        // Check if the time is actually up - be more lenient to ensure rounds end
         const turnStartTime = new Date(game.turnStartTime).getTime();
         const currentTime = Date.now();
         const elapsedSeconds = Math.floor((currentTime - turnStartTime) / 1000);
         
-        if (elapsedSeconds < game.timeLimit) {
-            // Still within time limit, ignore premature timeUp
-            console.log(`Ignoring premature timeUp for game ${gameId}. Elapsed: ${elapsedSeconds}s, Limit: ${game.timeLimit}s`);
+        // Only reject timeUp if it's very early (more than 10 seconds before time limit)
+        // This allows for network delays and client-side timer variations
+        if (elapsedSeconds < (game.timeLimit - 10)) {
+            console.log(`Ignoring very premature timeUp for game ${gameId}. Elapsed: ${elapsedSeconds}s, Limit: ${game.timeLimit}s`);
             return;
         }
+
+        console.log(`Processing timeUp for game ${gameId}. Elapsed: ${elapsedSeconds}s, Limit: ${game.timeLimit}s`);
 
         // Mark the turn as ended to prevent duplicate processing
         game.turnState = 'ENDING';
@@ -666,6 +789,7 @@ async function handleTimeUp(gameId: string, event: APIGatewayEvent) {
             ExpressionAttributeValues: { ':t': game.turnState },
         };
         await dynamoDb.update(updateParams).promise();
+        console.log(`Game ${gameId} marked as ENDING`);
 
         // End the current round due to timeout
         const playerIds = game.players.map((p: any) => p.connectionId);
@@ -676,6 +800,7 @@ async function handleTimeUp(gameId: string, event: APIGatewayEvent) {
         }, event);
 
         // Move to next turn
+        console.log(`Moving to next turn for game ${gameId}`);
         await nextTurn(game, event);
 
     } catch (error) {
@@ -698,6 +823,22 @@ async function updateHint(gameId: string, event: APIGatewayEvent) {
         }
 
         const timeElapsed = Date.now() - new Date(game.turnStartTime).getTime();
+        const elapsedSeconds = Math.floor(timeElapsed / 1000);
+        
+        // Check if the round should have ended due to timeout - be more aggressive in the final moments
+        if (elapsedSeconds >= game.timeLimit) {
+            console.log(`Round timeout detected during hint update for game ${gameId}. Auto-ending round. Elapsed: ${elapsedSeconds}s, Limit: ${game.timeLimit}s`);
+            await handleTimeUp(gameId, event);
+            return;
+        }
+        
+        // Also check if we're very close to timeout (within 2 seconds) and force end
+        if (elapsedSeconds >= (game.timeLimit - 2)) {
+            console.log(`Round very close to timeout during hint update for game ${gameId}. Force-ending round. Elapsed: ${elapsedSeconds}s, Limit: ${game.timeLimit}s`);
+            await handleTimeUp(gameId, event);
+            return;
+        }
+
         const newHint = generateHint(game.secretWord, timeElapsed, game.timeLimit * 1000);
         
         // Update hint in database regardless of whether it changed (to maintain consistency)
@@ -747,13 +888,14 @@ async function restartGame(connectionId: string, gameId: string, event: APIGatew
             // If not owner, allow player to rejoin if game is ended
             if (game.gameState === 'ENDED') {
                 // Find if this player was in the game before
-                const existingPlayer = game.players.find((p: any) => 
+                const existingPlayerIndex = game.players.findIndex((p: any) => 
                     p.connectionId === connectionId || 
                     (sessionId && p.sessionId === sessionId)
                 );
                 
-                if (existingPlayer) {
+                if (existingPlayerIndex !== -1) {
                     // Player rejoining - update their connection info and mark as ready
+                    const existingPlayer = game.players[existingPlayerIndex];
                     existingPlayer.connectionId = connectionId;
                     existingPlayer.lastSeen = new Date().toISOString();
                     existingPlayer.readyToRestart = true;
@@ -762,13 +904,15 @@ async function restartGame(connectionId: string, gameId: string, event: APIGatew
                     const activeOwner = game.players.find((p: any) => 
                         (p.connectionId === game.ownerId || 
                          (p.sessionId && p.sessionId === game.ownerSessionId)) &&
-                        p.readyToRestart
+                        p.readyToRestart !== false
                     );
                     
                     if (!activeOwner) {
                         // Make this player the new owner
                         game.ownerId = connectionId;
                         game.ownerSessionId = sessionId;
+                        existingPlayer.isOwner = true;
+                        console.log(`Making ${connectionId} the new owner of game ${gameId}`);
                     }
                     
                     const updateParams = {
@@ -788,12 +932,13 @@ async function restartGame(connectionId: string, gameId: string, event: APIGatew
                     await sendMessageToClient(connectionId, { 
                         action: 'gameRestarted', 
                         game,
-                        isNewOwner: game.ownerId === connectionId
+                        isNewOwner: game.ownerId === connectionId,
+                        message: game.ownerId === connectionId ? 'You are now the game owner!' : 'You have rejoined the game!'
                     }, event);
                     
-                    // Notify other players that someone rejoined
+                    // Notify other ready players that someone rejoined
                     const otherPlayerIds = game.players
-                        .filter((p: any) => p.connectionId !== connectionId && p.readyToRestart)
+                        .filter((p: any) => p.connectionId !== connectionId && p.readyToRestart !== false)
                         .map((p: any) => p.connectionId);
                     
                     if (otherPlayerIds.length > 0) {
@@ -830,12 +975,13 @@ async function restartGame(connectionId: string, gameId: string, event: APIGatew
         game.turnStartTime = undefined;
         game.endedAt = undefined;
         
-        // Reset player scores and mark owner as ready, others as not ready
+        // Reset player scores and mark all players as ready (they can opt out later)
         game.players.forEach((player: any) => {
             player.score = 0;
             player.lastSeen = new Date().toISOString();
-            player.readyToRestart = player.connectionId === connectionId || 
-                                   (sessionId && player.sessionId === sessionId);
+            player.readyToRestart = true; // Mark all as ready initially
+            player.isOwner = player.connectionId === connectionId || 
+                           (sessionId && player.sessionId === sessionId);
         });
 
         // Update timeLimit if provided
@@ -858,8 +1004,9 @@ async function restartGame(connectionId: string, gameId: string, event: APIGatew
         await dynamoDb.update(updateParams).promise();
         console.log(`Game ${gameId} restarted by owner`);
 
-        // Only notify the owner initially
-        await sendMessageToClient(connectionId, { action: 'gameRestarted', game }, event);
+        // Notify all players that the game has been restarted
+        const playerIds = game.players.map((p: any) => p.connectionId);
+        await broadcastToPlayers(playerIds, { action: 'gameRestarted', game }, event);
 
     } catch (error) {
         console.error(`Failed to restart game ${gameId}:`, error);

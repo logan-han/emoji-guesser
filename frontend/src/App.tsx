@@ -180,7 +180,23 @@ const App: React.FC = () => {
               
               // Time's up! All players should notify server for redundancy, but server will handle deduplication
               if (gameState.gameId) {
+                // Send multiple timeUp messages immediately and with delays to ensure delivery
                 sendMessage({ action: 'timeUp', gameId: gameState.gameId });
+                sendMessage({ action: 'timeUp', gameId: gameState.gameId });
+                
+                // Send timeUp multiple times with delay to ensure the server gets it
+                setTimeout(() => {
+                  sendMessage({ action: 'timeUp', gameId: gameState.gameId });
+                  sendMessage({ action: 'timeUp', gameId: gameState.gameId });
+                }, 500);
+                setTimeout(() => {
+                  sendMessage({ action: 'timeUp', gameId: gameState.gameId });
+                  sendMessage({ action: 'timeUp', gameId: gameState.gameId });
+                }, 1500);
+                setTimeout(() => {
+                  sendMessage({ action: 'timeUp', gameId: gameState.gameId });
+                  sendMessage({ action: 'timeUp', gameId: gameState.gameId });
+                }, 3000);
               }
               return 0;
             }
@@ -206,9 +222,24 @@ const App: React.FC = () => {
       const hintInterval = setInterval(() => {
         sendMessage({ action: 'updateHint', gameId: game.gameId });
       }, 2000); // Update hint every 2 seconds for smoother updates
-      return () => clearInterval(hintInterval);
+      
+      // In the last 30 seconds, update even more frequently to catch timeouts
+      let aggressiveInterval: NodeJS.Timeout | null = null;
+      const timeLeft = roundTimeLeft;
+      if (timeLeft !== null && timeLeft <= 30) {
+        aggressiveInterval = setInterval(() => {
+          sendMessage({ action: 'updateHint', gameId: game.gameId });
+        }, 500); // Every 500ms in the final 30 seconds
+      }
+      
+      return () => {
+        clearInterval(hintInterval);
+        if (aggressiveInterval) {
+          clearInterval(aggressiveInterval);
+        }
+      };
     }
-  }, [game, sendMessage]);
+  }, [game, sendMessage, roundTimeLeft]);
 
   const clearRoundTimer = useCallback(() => {
     if (timerInterval) {
@@ -283,9 +314,10 @@ const App: React.FC = () => {
           type: 'system', 
           timestamp: Date.now() 
         }]);
-        // Start timer when describing begins
-        if (game) {
-          startRoundTimer({ ...game, turnState: 'DESCRIBING', turnStartTime: new Date().toISOString() });
+        // Start timer when describing begins - use the game data from the server
+        if (data.game) {
+          setGame(data.game);
+          startRoundTimer(data.game);
         }
         break;
       case 'turnStarted':
@@ -373,6 +405,12 @@ const App: React.FC = () => {
         if (data.isNewOwner) {
           setMessages(prev => [...prev, { 
             text: '👑 You are now the game owner!', 
+            type: 'system', 
+            timestamp: Date.now() 
+          }]);
+        } else if (data.message) {
+          setMessages(prev => [...prev, { 
+            text: data.message, 
             type: 'system', 
             timestamp: Date.now() 
           }]);
@@ -492,12 +530,6 @@ const App: React.FC = () => {
     // Check if the player is the owner by connectionId or sessionId
     return game.ownerId === player.connectionId || 
            (player.sessionId && game.ownerSessionId === player.sessionId);
-  };
-
-  const handleEmojiSelect = (emoji: string) => {
-    if (game) {
-      sendMessage({ action: 'submitEmoji', gameId: game.gameId, emoji });
-    }
   };
 
   const handleGuessSubmit = (e: FormEvent) => {
@@ -741,21 +773,6 @@ const App: React.FC = () => {
                         }}
                         skinTonesDisabled
                       />
-                    </div>
-                    
-                    <div className="quick-emojis">
-                      <p><strong>Quick access:</strong></p>
-                      <div className="quick-emoji-row">
-                        {['😀', '😂', '❤️', '👍', '👋', '🔥', '⭐', '🚀'].map(emoji => (
-                          <button 
-                            key={emoji}
-                            onClick={() => handleEmojiSelect(emoji)}
-                            className="emoji-btn quick"
-                          >
-                            {emoji}
-                          </button>
-                        ))}
-                      </div>
                     </div>
                   </div>
                 </div>

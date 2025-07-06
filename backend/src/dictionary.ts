@@ -37,6 +37,7 @@ export function getRandomWords(): string[] {
  * Generates hint pattern for a word
  * Shows blanks initially, then gradually reveals letters at stable intervals
  * Maintains previously revealed letters
+ * Ensures the last letter is revealed at least 10 seconds before time is up
  */
 export function generateHint(word: string, timeElapsed: number, totalTime: number): string {
   const normalizedWord = word.toLowerCase();
@@ -44,10 +45,14 @@ export function generateHint(word: string, timeElapsed: number, totalTime: numbe
   
   // Calculate stable intervals - reveal one letter every interval
   const maxRevealCount = Math.max(1, Math.floor(wordLength * 0.7)); // Maximum 70% of letters, at least 1
-  const revealInterval = totalTime / maxRevealCount; // How often to reveal a letter
+  
+  // Ensure the last letter is revealed at least 10 seconds before time is up
+  const timeForLastReveal = totalTime - 10000; // 10 seconds before end
+  const effectiveTime = Math.min(timeElapsed, timeForLastReveal);
+  const revealInterval = timeForLastReveal / maxRevealCount; // How often to reveal a letter
   
   // Calculate how many letters should be revealed based on time elapsed
-  let lettersToReveal = Math.floor(timeElapsed / revealInterval);
+  let lettersToReveal = Math.floor(effectiveTime / revealInterval);
   lettersToReveal = Math.min(lettersToReveal, maxRevealCount);
   
   if (lettersToReveal === 0) {
