@@ -1,6 +1,11 @@
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
 import App from './App';
 
+// Mock the playSound function
+jest.mock('./sounds', () => ({
+  playSound: jest.fn(),
+}));
+
 // Create a proper WebSocket class mock
 class MockWebSocket {
   public onopen: ((event: Event) => void) | null = null;

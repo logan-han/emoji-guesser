@@ -432,6 +432,20 @@
   background: #2563eb;
 }
 
+.clear-emojis-btn {
+  background: #ef4444;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.clear-emojis-btn:hover {
+  background: #dc2626;
+}
+
 .emoji-picker-panel {
   border: 1px solid #e5e7eb;
   border-radius: 8px;
@@ -785,9 +799,14 @@
   font-weight: bold;
 }
 
-.play-again-btn {
-  background: linear-gradient(135deg, #4ade80, #22c55e);
-  color: white;
+.game-ended-actions {
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+  margin-top: 30px;
+}
+
+.play-again-btn, .back-to-lobby-btn {
   border: none;
   padding: 15px 30px;
   border-radius: 10px;
@@ -797,9 +816,24 @@
   transition: transform 0.2s, box-shadow 0.2s;
 }
 
+.play-again-btn {
+  background: linear-gradient(135deg, #4ade80, #22c55e);
+  color: white;
+}
+
 .play-again-btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 4px 15px rgba(74, 222, 128, 0.4);
+}
+
+.back-to-lobby-btn {
+  background: linear-gradient(135deg, #9ca3af, #6b7280);
+  color: white;
+}
+
+.back-to-lobby-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(156, 163, 175, 0.4);
 }
 
 /* Timer Styles */

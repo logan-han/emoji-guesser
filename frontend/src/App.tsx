@@ -178,7 +178,7 @@ const App: React.FC = () => {
             return prev - 1;
           });
           
-          // Request hint update every 5 seconds during describing phase
+          // Request hint update every second during describing phase
           if (game && game.turnState === 'DESCRIBING') {
             sendMessage({ action: 'updateHint', gameId: game.gameId });
           }
@@ -217,6 +217,9 @@ const App: React.FC = () => {
       case 'playerJoined':
         playSound('playerJoined');
         setGame(data.game);
+        if (data.game.gameState === 'IN_PROGRESS') {
+          startRoundTimer(data.game);
+        }
         break;
       case 'playerNameUpdated':
       case 'playerReconnected':
@@ -334,6 +337,18 @@ const App: React.FC = () => {
           type: 'system', 
           timestamp: Date.now() 
         }]);
+        break;
+      case 'gameRestarted':
+        setGame(data.game);
+        setIsDescriber(false);
+        setIsChoosingWord(false);
+        setSecretWord('');
+        setCurrentHint('');
+        setWordOptions([]);
+        setEmojis([]);
+        setGuess('');
+        setMessages([]);
+        clearRoundTimer();
         break;
       case 'timeUp':
         setMessages(prev => [...prev, { 
@@ -465,9 +480,13 @@ const App: React.FC = () => {
     }
   };
 
-  // Helper function to play again (reset game state)
   const playAgain = () => {
-    // Reset all game state
+    if (game) {
+      sendMessage({ action: 'restartGame', gameId: game.gameId, sessionId, timeLimit });
+    }
+  };
+
+  const backToLobby = () => {
     setGame(null);
     setIsDescriber(false);
     setIsChoosingWord(false);
@@ -478,14 +497,7 @@ const App: React.FC = () => {
     setGuess('');
     setMessages([]);
     clearRoundTimer();
-    
-    // Clear URL parameters
     window.history.pushState({}, '', window.location.pathname);
-    
-    // Automatically create a new game for convenience
-    setTimeout(() => {
-      sendMessage({ action: 'createGame', sessionId, timeLimit });
-    }, 100); // Small delay to ensure state is cleared
   };
 
   return (
@@ -667,6 +679,9 @@ const App: React.FC = () => {
                   <div className="emoji-picker">
                     <div className="emoji-picker-header">
                       <h4>Select emojis:</h4>
+                      <button onClick={() => setEmojis([])} className="clear-emojis-btn">
+                        Clear Emojis
+                      </button>
                     </div>
                     
                     <div className="emoji-picker-panel">
@@ -772,9 +787,14 @@ const App: React.FC = () => {
                 </div>
               ))}
           </div>
-          <button onClick={playAgain} className="play-again-btn">
-            Play Again
-          </button>
+          <div className="game-ended-actions">
+            <button onClick={playAgain} className="play-again-btn">
+              Play Again
+            </button>
+            <button onClick={backToLobby} className="back-to-lobby-btn">
+              Back to Lobby
+            </button>
+          </div>
         </div>
       )}
     </div>
