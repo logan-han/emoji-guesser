@@ -44,6 +44,17 @@ jobs:
         run: yarn install --frozen-lockfile
         working-directory: ./backend
 
+      - name: Run Backend Tests
+        run: yarn test --coverage --watchAll=false
+        working-directory: ./backend
+
+      - name: Upload backend coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          flags: backend
+          name: backend-coverage
+
       - name: Backend Type Check
         run: yarn tsc --noEmit
         working-directory: ./backend
