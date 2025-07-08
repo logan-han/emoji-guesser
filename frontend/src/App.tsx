@@ -8,7 +8,7 @@ interface Player {
   sessionId?: string;
   name: string;
   score: number;
-  readyToRestart?: boolean;
+  wantsToPlayAgain?: boolean;
 }
 
 interface Game {
@@ -635,15 +635,15 @@ const App: React.FC = () => {
           )}
           
           <div className="players-section">
-            <h3>👥 Players ({game.players.filter((p: Player) => p.readyToRestart !== false).length})</h3>
-            {game.players.filter((p: Player) => p.readyToRestart === false).length > 0 && (
+            <h3>👥 Players ({game.players.filter((p: Player) => p.wantsToPlayAgain !== false).length})</h3>
+            {game.players.filter((p: Player) => p.wantsToPlayAgain === false).length > 0 && (
               <p className="waiting-players-note">
-                🔄 {game.players.filter((p: Player) => p.readyToRestart === false).length} player(s) waiting to rejoin
+                🔄 {game.players.filter((p: Player) => p.wantsToPlayAgain === false).length} player(s) waiting to rejoin
               </p>
             )}
             <div className="players-list">
               {game.players
-                .filter((player: Player) => player.readyToRestart !== false)
+                .filter((player: Player) => player.wantsToPlayAgain !== false)
                 .map((player, index) => (
                 <div key={index} className="player-card">
                   {isCurrentPlayer(player) ? (
@@ -704,13 +704,13 @@ const App: React.FC = () => {
             </div>
           </div>
           
-          {isGameOwner() && game.players.filter((p: Player) => p.readyToRestart !== false).length > 1 && (
+          {isGameOwner() && game.players.filter((p: Player) => p.wantsToPlayAgain !== false).length > 1 && (
             <button 
               onClick={startGame} 
-              disabled={game.players.filter((p: Player) => p.readyToRestart !== false).length < 2}
+              disabled={game.players.filter((p: Player) => p.wantsToPlayAgain !== false).length < 2}
               className="start-game-btn"
             >
-              {game.players.filter((p: Player) => p.readyToRestart !== false).length < 2 
+              {game.players.filter((p: Player) => p.wantsToPlayAgain !== false).length < 2 
                 ? 'Need at least 2 players' 
                 : 'Start Game 🚀'}
             </button>
@@ -848,7 +848,7 @@ const App: React.FC = () => {
               .map((player, index) => (
                 <div key={index} className="final-score">
                   <span className="rank">#{index + 1}</span>
-                  <span className="name">{player.name}</span>
+                  <span className="name">{player.name} {player.wantsToPlayAgain && '🔄'}</span>
                   <span className="score">{player.score}</span>
                 </div>
               ))}

@@ -178,6 +178,7 @@ export const disconnect: APIGatewayProxyHandler = async (event) => {
 
 async function createGame(connectionId: string, event: APIGatewayEvent, sessionId?: string, timeLimit?: number) {
     const gameId = uuidv4().substring(0, 6).toUpperCase();
+    const ttl = Math.floor(Date.now() / 1000) + 86400; // 24 hours from now
     const game = {
         gameId,
         ownerId: connectionId,
@@ -193,7 +194,8 @@ async function createGame(connectionId: string, event: APIGatewayEvent, sessionI
         gameState: 'WAITING',
         createdAt: new Date().toISOString(),
         timeLimit: timeLimit || 180, // Use provided timeLimit or default to 3 minutes
-        maxRounds: 0 // Will be set to number of players when game starts
+        maxRounds: 0, // Will be set to number of players when game starts
+        ttl,
     };
 
     try {
@@ -898,13 +900,13 @@ async function restartGame(connectionId: string, gameId: string, event: APIGatew
                     const existingPlayer = game.players[existingPlayerIndex];
                     existingPlayer.connectionId = connectionId;
                     existingPlayer.lastSeen = new Date().toISOString();
-                    existingPlayer.readyToRestart = true;
+                    existingPlayer.wantsToPlayAgain = true;
                     
                     // Check if this is the first player to rejoin and there's no active owner
                     const activeOwner = game.players.find((p: any) => 
                         (p.connectionId === game.ownerId || 
                          (p.sessionId && p.sessionId === game.ownerSessionId)) &&
-                        p.readyToRestart !== false
+                        p.wantsToPlayAgain !== false
                     );
                     
                     if (!activeOwner) {
@@ -938,7 +940,7 @@ async function restartGame(connectionId: string, gameId: string, event: APIGatew
                     
                     // Notify other ready players that someone rejoined
                     const otherPlayerIds = game.players
-                        .filter((p: any) => p.connectionId !== connectionId && p.readyToRestart !== false)
+                        .filter((p: any) => p.connectionId !== connectionId && p.wantsToPlayAgain !== false)
                         .map((p: any) => p.connectionId);
                     
                     if (otherPlayerIds.length > 0) {
@@ -974,12 +976,13 @@ async function restartGame(connectionId: string, gameId: string, event: APIGatew
         game.turnState = undefined;
         game.turnStartTime = undefined;
         game.endedAt = undefined;
+        game.ttl = Math.floor(Date.now() / 1000) + 86400; // 24 hours from now
         
         // Reset player scores and mark all players as ready (they can opt out later)
         game.players.forEach((player: any) => {
             player.score = 0;
             player.lastSeen = new Date().toISOString();
-            player.readyToRestart = true; // Mark all as ready initially
+            player.wantsToPlayAgain = true; // Mark all as ready initially
             player.isOwner = player.connectionId === connectionId || 
                            (sessionId && player.sessionId === sessionId);
         });

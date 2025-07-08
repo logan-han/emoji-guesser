@@ -83,3 +83,6 @@ resources:
         ProvisionedThroughput:
           ReadCapacityUnits: ${self:custom.dynamodb.${sls:stage}.readCapacity}
           WriteCapacityUnits: ${self:custom.dynamodb.${sls:stage}.writeCapacity}
+        TimeToLiveSpecification:
+          AttributeName: ttl
+          Enabled: true
