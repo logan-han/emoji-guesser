@@ -49,6 +49,8 @@ const App: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [gameIdInput, setGameIdInput] = useState('');
   const [sessionId, setSessionId] = useState<string>('');
+  const [isPublic, setIsPublic] = useState<boolean>(false);
+  const [publicGames, setPublicGames] = useState<Game[]>([]);
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [editingName, setEditingName] = useState<boolean>(false);
   const [copyFeedback, setCopyFeedback] = useState<boolean>(false);
@@ -73,6 +75,7 @@ const App: React.FC = () => {
     if (savedPlayerName) {
       setPlayerName(savedPlayerName);
     }
+    fetchPublicGames();
   }, []);
 
   useEffect(() => {
@@ -146,6 +149,16 @@ const App: React.FC = () => {
       messagesEndRef.current.scrollTop = messagesEndRef.current.scrollHeight;
     }
   }, [messages]);
+
+  const fetchPublicGames = async () => {
+    try {
+      const response = await fetch(process.env.REACT_APP_API_URL + '/games');
+      const data = await response.json();
+      setPublicGames(data);
+    } catch (error) {
+      console.error('Failed to fetch public games:', error);
+    }
+  };
 
   const sendMessage = useCallback((message: any) => {
     if (ws && connected) {
@@ -467,7 +480,7 @@ const App: React.FC = () => {
 
   const createGame = () => {
     playSound('buttonClick');
-    sendMessage({ action: 'createGame', sessionId, timeLimit });
+    sendMessage({ action: 'createGame', sessionId, timeLimit, isPublic });
   };
 
   const startGame = () => {
@@ -475,10 +488,11 @@ const App: React.FC = () => {
     if (game) sendMessage({ action: 'startGame', gameId: game.gameId, sessionId, timeLimit });
   };
 
-  const joinGameById = () => {
+  const joinGameById = (id?: string) => {
     playSound('buttonClick');
-    if (gameIdInput) {
-      sendMessage({ action: 'joinGame', gameId: gameIdInput, sessionId, playerName: playerName || undefined });
+    const gameToJoin = id || gameIdInput;
+    if (gameToJoin) {
+      sendMessage({ action: 'joinGame', gameId: gameToJoin, sessionId, playerName: playerName || undefined });
       setGameIdInput('');
     }
   };
@@ -580,6 +594,16 @@ const App: React.FC = () => {
       {!game && (
         <div className="lobby">
           <div className="game-actions">
+            <div className="create-game-options">
+              <label>
+                <input type="radio" name="gameType" value="private" checked={!isPublic} onChange={() => setIsPublic(false)} />
+                Private Game
+              </label>
+              <label>
+                <input type="radio" name="gameType" value="public" checked={isPublic} onChange={() => setIsPublic(true)} />
+                Public Game
+              </label>
+            </div>
             <button onClick={createGame} disabled={!connected} className="create-game-btn">
               Create New Game
             </button>
@@ -595,6 +619,21 @@ const App: React.FC = () => {
                 Join Game
               </button>
             </div>
+          </div>
+          <div className="public-games-list">
+            <h3>Public Games</h3>
+            {publicGames.length > 0 ? (
+              <ul>
+                {publicGames.map((game) => (
+                  <li key={game.gameId}>
+                    <span>{game.gameId} - {game.players.length} players</span>
+                    <button onClick={() => joinGameById(game.gameId)}>Join</button>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>No public games available.</p>
+            )}
           </div>
         </div>
       )}

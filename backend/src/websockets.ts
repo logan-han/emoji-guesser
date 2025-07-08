@@ -174,9 +174,58 @@ export const disconnect: APIGatewayProxyHandler = async (event) => {
   return { statusCode: 200, body: 'Disconnected' };
 };
 
+export const listPublicGames: APIGatewayProxyHandler = async (event) => {
+    const params = {
+        TableName: GAMES_TABLE,
+        FilterExpression: 'isPublic = :true and gameState = :waiting',
+        ExpressionAttributeValues: {
+            ':true': true,
+            ':waiting': 'WAITING',
+        },
+    };
+
+    try {
+        const result = await dynamoDb.scan(params).promise();
+        return {
+            statusCode: 200,
+            headers: {
+                'Access-Control-Allow-Origin': '*',
+            },
+            body: JSON.stringify(result.Items),
+        };
+    } catch (error) {
+        console.error('Failed to list public games:', error);
+        return {
+            statusCode: 500,
+            headers: {
+                'Access-Control-Allow-Origin': '*',
+            },
+            body: JSON.stringify({ message: 'Could not list public games.' }),
+        };
+    }
+};
+
 // --- Game Logic Functions ---
 
-async function createGame(connectionId: string, event: APIGatewayEvent, sessionId?: string, timeLimit?: number) {
+async function listPublicGames(connectionId: string, event: APIGatewayEvent) {
+    const params = {
+        TableName: GAMES_TABLE,
+        FilterExpression: 'isPublic = :true and gameState = :waiting',
+        ExpressionAttributeValues: {
+            ':true': true,
+            ':waiting': 'WAITING',
+        },
+    };
+
+    try {
+        const result = await dynamoDb.scan(params).promise();
+        await sendMessageToClient(connectionId, { action: 'publicGamesList', games: result.Items }, event);
+    } catch (error) {
+        console.error('Failed to list public games:', error);
+        await sendMessageToClient(connectionId, { action: 'error', message: 'Could not list public games.' }, event);
+    }
+}
+async function createGame(connectionId: string, event: APIGatewayEvent, sessionId?: string, timeLimit?: number, isPublic?: boolean) {
     const gameId = uuidv4().substring(0, 6).toUpperCase();
     const ttl = Math.floor(Date.now() / 1000) + 86400; // 24 hours from now
     const game = {
@@ -196,6 +245,7 @@ async function createGame(connectionId: string, event: APIGatewayEvent, sessionI
         timeLimit: timeLimit || 180, // Use provided timeLimit or default to 3 minutes
         maxRounds: 0, // Will be set to number of players when game starts
         ttl,
+        isPublic: isPublic || false,
     };
 
     try {
@@ -1034,14 +1084,17 @@ export const default_handler: APIGatewayProxyHandler = async (event) => {
         return { statusCode: 400, body: 'Invalid JSON format.' };
     }
 
-    const { action, gameId, word, guess, emoji, name, sessionId, playerName, timeLimit } = data;
+    const { action, gameId, word, guess, emoji, name, sessionId, playerName, timeLimit, isPublic } = data;
     console.log(`Action '${action}' received from ${connectionId}`);
 
     const apiGatewayEvent = event as APIGatewayEvent;
 
     switch (action) {
+        case 'listPublicGames':
+            await listPublicGames(connectionId, apiGatewayEvent);
+            break;
         case 'createGame':
-            await createGame(connectionId, apiGatewayEvent, sessionId, timeLimit);
+            await createGame(connectionId, apiGatewayEvent, sessionId, timeLimit, isPublic);
             break;
         case 'joinGame':
             if (gameId) {
