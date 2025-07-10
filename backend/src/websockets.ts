@@ -113,6 +113,54 @@ const forceEndRound = async (gameId: string) => {
     }
 };
 
+async function cleanupStalePlayers(game: any, event: APIGatewayEvent): Promise<any> {
+    const now = new Date().getTime();
+    const staleTime = 2 * 60 * 1000; // 2 minutes
+    const activePlayers = [];
+    let playersChanged = false;
+
+    for (const player of game.players) {
+        const lastSeen = player.lastSeen ? new Date(player.lastSeen).getTime() : 0;
+        if (now - lastSeen < staleTime) {
+            activePlayers.push(player);
+        } else {
+            playersChanged = true;
+            console.log(`Removing stale player ${player.name} (${player.connectionId}) from game ${game.gameId}`);
+        }
+    }
+
+    if (playersChanged) {
+        game.players = activePlayers;
+        if (game.players.length === 0) {
+            await dynamoDb.delete({ TableName: GAMES_TABLE, Key: { gameId: game.gameId } }).promise();
+            return null; // Game deleted
+        }
+
+        // If owner is now stale, reassign
+        const ownerExists = game.players.some((p: any) => p.connectionId === game.ownerId);
+        if (!ownerExists) {
+            game.ownerId = game.players[0].connectionId;
+            game.ownerSessionId = game.players[0].sessionId;
+        }
+
+        const updateParams = {
+            TableName: GAMES_TABLE,
+            Key: { gameId: game.gameId },
+            UpdateExpression: 'set players = :p, ownerId = :o, ownerSessionId = :os',
+            ExpressionAttributeValues: {
+                ':p': game.players,
+                ':o': game.ownerId,
+                ':os': game.ownerSessionId,
+            },
+        };
+        await dynamoDb.update(updateParams).promise();
+
+        const playerIds = game.players.map((p: any) => p.connectionId);
+        await broadcastToPlayers(playerIds, { action: 'playerLeft', game }, event);
+    }
+
+    return game;
+}
 
 // --- WebSocket Handlers ---
 
@@ -133,37 +181,45 @@ export const disconnect: APIGatewayProxyHandler = async (event) => {
   try {
     const scanParams = {
       TableName: GAMES_TABLE,
-      FilterExpression: 'contains(players, :connectionId)',
-      ExpressionAttributeValues: {
-        ':connectionId': connectionId
-      }
     };
     
     const result = await dynamoDb.scan(scanParams).promise();
     
     if (result.Items && result.Items.length > 0) {
       for (const game of result.Items) {
-        const updatedPlayers = game.players.filter((p: any) => p.connectionId !== connectionId);
-        
-        if (updatedPlayers.length === 0) {
-          // Delete empty game
-          await dynamoDb.delete({ TableName: GAMES_TABLE, Key: { gameId: game.gameId } }).promise();
-        } else {
-          // Update game with remaining players
-          const updateParams = {
-            TableName: GAMES_TABLE,
-            Key: { gameId: game.gameId },
-            UpdateExpression: 'set players = :p',
-            ExpressionAttributeValues: { ':p': updatedPlayers }
-          };
-          await dynamoDb.update(updateParams).promise();
+        const playerIndex = game.players.findIndex((p: any) => p.connectionId === connectionId);
+
+        if (playerIndex > -1) {
+          const updatedPlayers = game.players.filter((p: any) => p.connectionId !== connectionId);
           
-          // Notify remaining players
-          const playerIds = updatedPlayers.map((p: any) => p.connectionId);
-          await broadcastToPlayers(playerIds, { 
-            action: 'playerLeft', 
-            game: { ...game, players: updatedPlayers } 
-          }, event as APIGatewayEvent);
+          if (updatedPlayers.length === 0) {
+            // Delete empty game
+            await dynamoDb.delete({ TableName: GAMES_TABLE, Key: { gameId: game.gameId } }).promise();
+            console.log(`Game ${game.gameId} deleted as last player disconnected.`);
+          } else {
+            let ownerId = game.ownerId;
+            // If the owner disconnected, assign a new owner
+            if (game.ownerId === connectionId) {
+              ownerId = updatedPlayers[0].connectionId;
+            }
+
+            // Update game with remaining players
+            const updateParams = {
+              TableName: GAMES_TABLE,
+              Key: { gameId: game.gameId },
+              UpdateExpression: 'set players = :p, ownerId = :o',
+              ExpressionAttributeValues: { ':p': updatedPlayers, ':o': ownerId }
+            };
+            await dynamoDb.update(updateParams).promise();
+            
+            // Notify remaining players
+            const playerIds = updatedPlayers.map((p: any) => p.connectionId);
+            await broadcastToPlayers(playerIds, { 
+              action: 'playerLeft', 
+              game: { ...game, players: updatedPlayers, ownerId: ownerId } 
+            }, event as APIGatewayEvent);
+            console.log(`Player ${connectionId} left game ${game.gameId}. New owner: ${ownerId}`);
+          }
         }
       }
     }
@@ -207,7 +263,7 @@ export const listPublicGames: APIGatewayProxyHandler = async (event) => {
 
 // --- Game Logic Functions ---
 
-async function listPublicGames(connectionId: string, event: APIGatewayEvent) {
+async function sendPublicGamesList(connectionId: string, event: APIGatewayEvent) {
     const params = {
         TableName: GAMES_TABLE,
         FilterExpression: 'isPublic = :true and gameState = :waiting',
@@ -369,7 +425,11 @@ async function startGame(connectionId: string, gameId: string, event: APIGateway
             return;
         }
 
-        const game = result.Item;
+        let game = await cleanupStalePlayers(result.Item, event);
+        if (!game) {
+            await sendMessageToClient(connectionId, { action: 'error', message: 'Game has been removed due to inactivity.' }, event);
+            return;
+        }
 
         // Check ownership by both connectionId and sessionId
         const isOwner = game.ownerId === connectionId || 
@@ -400,7 +460,7 @@ async function startGame(connectionId: string, gameId: string, event: APIGateway
         game.turnStartTime = new Date().toISOString();
         
         // Generate 3 random words for the first describer to choose from
-        game.wordOptions = getRandomWords();
+        game.wordOptions = await getRandomWords();
         
         // Update timeLimit if provided
         if (timeLimit !== undefined) {
@@ -504,14 +564,6 @@ async function chooseWord(connectionId: string, gameId: string, word: string, ev
             action: 'turnStarted', 
             game,
             hint: game.currentHint
-        }, event);
-
-        // Send status message to all players
-        const describerName = game.players[game.currentDescriberIndex].name;
-        await broadcastToPlayers(playerIds, { 
-            action: 'statusMessage', 
-            message: `${describerName} is now describing the word!`,
-            timestamp: Date.now()
         }, event);
 
         // Schedule a server-side timeout to ensure the round ends even if no client sends timeUp
@@ -651,7 +703,7 @@ async function nextTurn(game: any, event: APIGatewayEvent) {
     }
     
     // Generate new word options for the next describer
-    game.wordOptions = getRandomWords();
+    game.wordOptions = await getRandomWords();
     delete game.secretWord;
     delete game.currentHint;
     game.turnState = 'CHOOSING_WORD';
@@ -1091,7 +1143,7 @@ export const default_handler: APIGatewayProxyHandler = async (event) => {
 
     switch (action) {
         case 'listPublicGames':
-            await listPublicGames(connectionId, apiGatewayEvent);
+            await sendPublicGamesList(connectionId, apiGatewayEvent);
             break;
         case 'createGame':
             await createGame(connectionId, apiGatewayEvent, sessionId, timeLimit, isPublic);
@@ -1169,4 +1221,3 @@ export const default_handler: APIGatewayProxyHandler = async (event) => {
 
     return { statusCode: 200, body: 'Message handled.' };
 };
-

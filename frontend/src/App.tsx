@@ -361,10 +361,10 @@ const App: React.FC = () => {
         break;
       case 'wordGuessed':
         playSound('correctGuess');
-        setMessages(prev => [...prev, { 
-          text: `🎉 ${data.guesserName} guessed correctly!`, 
-          type: 'system', 
-          timestamp: Date.now() 
+        setMessages(prev => [...prev, {
+          text: `🎉 ${data.guesserName} guessed correctly! The word was: ${data.word}`,
+          type: 'system',
+          timestamp: Date.now()
         }]);
         setGame(data.game);
         // Clear timer when word is guessed
@@ -615,7 +615,7 @@ const App: React.FC = () => {
                 onChange={(e) => setGameIdInput(e.target.value)}
                 className="game-id-input"
               />
-              <button onClick={joinGameById} disabled={!connected || !gameIdInput} className="join-game-btn">
+              <button onClick={() => joinGameById()} disabled={!connected || !gameIdInput} className="join-game-btn">
                 Join Game
               </button>
             </div>

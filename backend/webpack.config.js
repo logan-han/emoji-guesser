@@ -20,7 +20,7 @@ module.exports = {
   },
   target: 'node',
   externals: [nodeExternals({
-    allowlist: ['random-words']
+    allowlist: ['random-words', 'compromise']
   })],
   module: {
     rules: [

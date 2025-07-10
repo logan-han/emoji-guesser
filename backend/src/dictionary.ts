@@ -1,23 +1,44 @@
 import { generate } from 'random-words';
 
+// Type declaration for compromise since @types/compromise is not available
+declare const compromiseNlp: {
+  (text: string): {
+    nouns(): {
+      out(format: string): string[];
+    };
+  };
+};
+
+// Import compromise using require for compatibility
+const nlp = require('compromise') as typeof compromiseNlp;
+
 /**
- * Generates 3 random words using the random-words package
+ * Generates 3 random nouns using random-words and compromise
  */
-export function getRandomWords(): string[] {
+export async function getRandomWords(): Promise<string[]> {
+  let nouns: string[] = [];
   try {
-    // Generate 3 random words with reasonable length
-    const result = generate({ exactly: 3, maxLength: 12 });
-    
-    // Ensure we always return an array of strings
-    if (Array.isArray(result)) {
-      return result;
-    } else if (typeof result === 'string') {
-      // If it returns a single string, wrap it in an array and generate 2 more
-      const additionalWords = generate({ exactly: 2, maxLength: 12 });
-      return [result, ...(Array.isArray(additionalWords) ? additionalWords : [additionalWords])];
-    } else {
-      throw new Error('Unexpected result type from random-words');
+    while (nouns.length < 3) {
+      // Generate a batch of random words
+      const words = generate({ exactly: 50 });
+      
+      // Filter for nouns using compromise
+      const wordsArray = Array.isArray(words) ? words : [words];
+      const doc = nlp(wordsArray.join(' '));
+      const foundNouns = doc.nouns().out('array');
+      
+      // Add unique nouns that meet the length criteria
+      for (const noun of foundNouns) {
+        const cleanNoun = noun.toLowerCase().trim();
+        if (cleanNoun.length <= 12 && !nouns.includes(cleanNoun)) {
+          nouns.push(cleanNoun);
+          if (nouns.length >= 3) {
+            break;
+          }
+        }
+      }
     }
+    return nouns.slice(0, 3);
   } catch (error) {
     console.error('Error generating random words:', error);
     // Fallback to a simple word list if the package fails
@@ -43,17 +64,19 @@ export function generateHint(word: string, timeElapsed: number, totalTime: numbe
   const normalizedWord = word.toLowerCase();
   const wordLength = normalizedWord.length;
   
-  // Calculate stable intervals - reveal one letter every interval
-  const maxRevealCount = Math.max(1, Math.floor(wordLength * 0.7)); // Maximum 70% of letters, at least 1
-  
-  // Ensure the last letter is revealed at least 10 seconds before time is up
-  const timeForLastReveal = totalTime - 10000; // 10 seconds before end
-  const effectiveTime = Math.min(timeElapsed, timeForLastReveal);
-  const revealInterval = timeForLastReveal / maxRevealCount; // How often to reveal a letter
+  // Reveal one letter every 30 seconds
+  const revealInterval = 30000; // 30 seconds in milliseconds
   
   // Calculate how many letters should be revealed based on time elapsed
-  let lettersToReveal = Math.floor(effectiveTime / revealInterval);
+  let lettersToReveal = Math.floor(timeElapsed / revealInterval);
+  
+  // Ensure we don't reveal all letters, leave some for guessing
+  const maxRevealCount = Math.max(1, Math.floor(wordLength * 0.7));
   lettersToReveal = Math.min(lettersToReveal, maxRevealCount);
+
+  if (timeElapsed >= totalTime - 10000 && lettersToReveal === 0) {
+    lettersToReveal = 1; // Reveal at least one letter in the last 10 seconds
+  }
   
   if (lettersToReveal === 0) {
     // Show only blanks initially

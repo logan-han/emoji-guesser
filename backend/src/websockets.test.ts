@@ -6,36 +6,32 @@ jest.mock('uuid', () => ({
   v4: jest.fn(() => 'mocked-uuid-123456')
 }));
 
-// Mock random-words
-jest.mock('random-words', () => ({
-  generate: jest.fn(() => ['apple', 'banana', 'orange'])
+// Mock dictionary
+jest.mock('./dictionary', () => ({
+  getRandomWords: jest.fn().mockResolvedValue(['apple', 'banana', 'orange']),
+  generateHint: jest.fn().mockReturnValue('_ _ _ _ _'),
 }));
+
+const mockPut = jest.fn().mockReturnValue({ promise: jest.fn().mockResolvedValue({}) });
+const mockUpdate = jest.fn().mockReturnValue({ promise: jest.fn().mockResolvedValue({}) });
+const mockGet = jest.fn().mockReturnValue({ promise: jest.fn().mockResolvedValue({}) });
+const mockDelete = jest.fn().mockReturnValue({ promise: jest.fn().mockResolvedValue({}) });
+const mockScan = jest.fn().mockReturnValue({ promise: jest.fn().mockResolvedValue({ Items: [] }) });
+const mockPostToConnection = jest.fn().mockReturnValue({ promise: jest.fn().mockResolvedValue({}) });
 
 // Mock AWS SDK
 jest.mock('aws-sdk', () => ({
   DynamoDB: {
     DocumentClient: jest.fn(() => ({
-      get: jest.fn().mockReturnValue({
-        promise: jest.fn().mockResolvedValue({})
-      }),
-      put: jest.fn().mockReturnValue({
-        promise: jest.fn().mockResolvedValue({})
-      }),
-      update: jest.fn().mockReturnValue({
-        promise: jest.fn().mockResolvedValue({})
-      }),
-      delete: jest.fn().mockReturnValue({
-        promise: jest.fn().mockResolvedValue({})
-      }),
-      scan: jest.fn().mockReturnValue({
-        promise: jest.fn().mockResolvedValue({ Items: [] })
-      })
+      get: mockGet,
+      put: mockPut,
+      update: mockUpdate,
+      delete: mockDelete,
+      scan: mockScan,
     }))
   },
   ApiGatewayManagementApi: jest.fn(() => ({
-    postToConnection: jest.fn().mockReturnValue({
-      promise: jest.fn().mockResolvedValue({})
-    })
+    postToConnection: mockPostToConnection,
   }))
 }));
 
@@ -65,16 +61,40 @@ describe('WebSocket Handler Tests', () => {
         statusCode: 200,
         body: 'Connected'
       });
+      expect(mockPostToConnection).toHaveBeenCalledWith({
+        ConnectionId: 'test-connection-123',
+        Data: JSON.stringify({ action: 'connected', connectionId: 'test-connection-123' })
+      });
     });
   });
 
   describe('Disconnect Handler', () => {
-    test('handles disconnection successfully', async () => {
+    test('handles disconnection and removes player from game', async () => {
+      const game = {
+        gameId: 'game-1',
+        ownerId: 'test-connection-123',
+        players: [
+          { connectionId: 'test-connection-123', name: 'Player 1' },
+          { connectionId: 'test-connection-456', name: 'Player 2' },
+        ]
+      };
+      mockScan.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Items: [game] }) });
+
       const result = await disconnect(mockEvent as APIGatewayEvent, {} as any, {} as any);
 
       expect(result).toEqual({
         statusCode: 200,
         body: 'Disconnected'
+      });
+      expect(mockScan).toHaveBeenCalled();
+      expect(mockUpdate).toHaveBeenCalledWith({
+        TableName: 'test-games-table',
+        Key: { gameId: 'game-1' },
+        UpdateExpression: 'set players = :p, ownerId = :o',
+        ExpressionAttributeValues: {
+          ':p': [{ connectionId: 'test-connection-456', name: 'Player 2' }],
+          ':o': 'test-connection-456'
+        }
       });
     });
   });
@@ -95,6 +115,8 @@ describe('WebSocket Handler Tests', () => {
         statusCode: 200,
         body: 'Message handled.'
       });
+      expect(mockPut).toHaveBeenCalled();
+      expect(mockPostToConnection).toHaveBeenCalled();
     });
 
     test('handles invalid JSON with error response', async () => {
