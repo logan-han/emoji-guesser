@@ -325,6 +325,7 @@ async function joinGame(connectionId: string, gameId: string, event: APIGatewayE
         }
 
         const game = result.Item;
+        game.spectators = game.spectators || [];
 
         // Check if player already in game by sessionId or connectionId
         let existingPlayer = game.players.find((p: any) => p.connectionId === connectionId);
@@ -380,9 +381,31 @@ async function joinGame(connectionId: string, gameId: string, event: APIGatewayE
             return;
         }
 
-        // Only allow new players to join if game is waiting
+        // Handle new players
         if (game.gameState !== 'WAITING') {
-            await sendMessageToClient(connectionId, { action: 'error', message: 'Game already in progress. Cannot join as new player.' }, event);
+            // Game in progress, add as spectator
+            const newSpectator = {
+                connectionId,
+                sessionId,
+                name: playerName || `Spectator ${game.spectators.length + 1}`,
+                joinedAt: new Date().toISOString(),
+                lastSeen: new Date().toISOString(),
+                isSpectator: true,
+            };
+            game.spectators.push(newSpectator);
+
+            const updateParams = {
+                TableName: GAMES_TABLE,
+                Key: { gameId },
+                UpdateExpression: 'set spectators = :s',
+                ExpressionAttributeValues: { ':s': game.spectators },
+            };
+            await dynamoDb.update(updateParams).promise();
+
+            await sendMessageToClient(connectionId, { action: 'spectatorJoined', game }, event);
+            
+            const allIds = [...game.players.map((p: any) => p.connectionId), ...game.spectators.map((s: any) => s.connectionId)];
+            await broadcastToPlayers(allIds, { action: 'playerJoined', game }, event);
             return;
         }
 
@@ -675,6 +698,12 @@ async function nextTurn(game: any, event: APIGatewayEvent) {
         activeTimeouts.delete(game.gameId);
     }
 
+    // Move spectators to players at the start of a new round
+    if (game.spectators && game.spectators.length > 0) {
+        game.players.push(...game.spectators);
+        game.spectators = [];
+    }
+
     // Check if all players have had their turn
     if (game.currentRound >= game.maxRounds) {
         // Game ended
@@ -756,8 +785,8 @@ async function submitEmoji(connectionId: string, gameId: string, emoji: string, 
         if (!result.Item) { return; } // Game not found
 
         const game = result.Item;
-        const playerIds = game.players.map((p: any) => p.connectionId);
-        await broadcastToPlayers(playerIds, { action: 'newEmoji', emoji }, event);
+        const allIds = [...game.players.map((p: any) => p.connectionId), ...(game.spectators || []).map((s: any) => s.connectionId)];
+        await broadcastToPlayers(allIds, { action: 'newEmoji', emoji }, event);
 
     } catch (error) {
         console.error(`Failed to submit emoji for game ${gameId}:`, error);

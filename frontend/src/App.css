@@ -944,6 +944,46 @@
   text-align: center;
 }
 
+.spectator-view {
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 15px;
+  padding: 30px;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.1);
+  text-align: center;
+}
+
+.spectator-view h2 {
+  color: #374151;
+  margin-bottom: 20px;
+}
+
+.spectator-view p {
+  color: #6b7280;
+  margin-bottom: 30px;
+}
+
+.spectators-section {
+  margin-top: 20px;
+}
+
+.spectators-section h4 {
+  color: #374151;
+  margin-bottom: 10px;
+}
+
+.spectators-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.spectator-card {
+  background: #f3f4f6;
+  padding: 10px 15px;
+  border-radius: 8px;
+  color: #4b5563;
+}
+
 /* Mobile responsiveness for new components */
 @media (max-width: 768px) {
   .word-options {

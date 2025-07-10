@@ -5,6 +5,7 @@ export interface Player {
   score: number;
   joinedAt: string;
   lastSeen?: string;
+  isSpectator?: boolean;
 }
 
 export interface Game {
@@ -12,6 +13,7 @@ export interface Game {
   ownerId: string;
   ownerSessionId?: string;
   players: Player[];
+  spectators?: Player[];
   gameState: 'WAITING' | 'IN_PROGRESS' | 'ENDED';
   currentRound?: number;
   maxRounds?: number;

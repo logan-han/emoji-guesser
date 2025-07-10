@@ -9,6 +9,7 @@ interface Player {
   name: string;
   score: number;
   wantsToPlayAgain?: boolean;
+  isSpectator?: boolean;
 }
 
 interface Game {
@@ -16,6 +17,7 @@ interface Game {
   ownerId: string;
   ownerSessionId?: string;
   players: Player[];
+  spectators?: Player[];
   gameState: 'WAITING' | 'IN_PROGRESS' | 'ENDED';
   currentRound?: number;
   currentDescriberIndex?: number;
@@ -39,6 +41,7 @@ const App: React.FC = () => {
   const [connected, setConnected] = useState(false);
   const [game, setGame] = useState<Game | null>(null);
   const [playerName, setPlayerName] = useState('');
+  const [isSpectator, setIsSpectator] = useState(false);
   const [isDescriber, setIsDescriber] = useState(false);
   const [isChoosingWord, setIsChoosingWord] = useState(false);
   const [wordOptions, setWordOptions] = useState<string[]>([]);
@@ -285,6 +288,10 @@ const App: React.FC = () => {
         if (data.game.gameState === 'IN_PROGRESS') {
           startRoundTimer(data.game);
         }
+        break;
+      case 'spectatorJoined':
+        setGame(data.game);
+        setIsSpectator(true);
         break;
       case 'playerNameUpdated':
       case 'playerReconnected':
@@ -741,6 +748,18 @@ const App: React.FC = () => {
                 </div>
               ))}
             </div>
+            {game.spectators && game.spectators.length > 0 && (
+              <div className="spectators-section">
+                <h4>Spectators ({game.spectators.length})</h4>
+                <div className="spectators-list">
+                  {game.spectators.map((spectator, index) => (
+                    <div key={index} className="spectator-card">
+                      <span>{spectator.name}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
           
           {isGameOwner() && game.players.filter((p: Player) => p.wantsToPlayAgain !== false).length > 1 && (
@@ -757,7 +776,53 @@ const App: React.FC = () => {
         </div>
       )}
 
-      {game && game.gameState === 'IN_PROGRESS' && (
+      {game && game.gameState === 'IN_PROGRESS' && isSpectator && (
+        <div className="spectator-view">
+          <h2>👓 Spectator Mode</h2>
+          <p>You've joined a game in progress. You can watch the current round and will join as a player in the next round.</p>
+          <div className="game-content">
+            <div className="main-content">
+              <div className="emojis-section">
+                <h3>🎭 Emoji Description</h3>
+                <div className="emojis-display">
+                  {emojis.length > 0 ? emojis.join(' ') : 'Waiting for emojis...'}
+                </div>
+              </div>
+              <div className="hint-section">
+                <h3>💡 Word Hint</h3>
+                <div className="hint-display">
+                  {currentHint}
+                </div>
+              </div>
+              <div className="scoreboard">
+                <h3>🏆 Scoreboard</h3>
+                <div className="scores">
+                  {game.players.map((player, index) => (
+                    <div key={index} className="score-item">
+                      <span className="player-name">{player.name}</span>
+                      <span className="score">{player.score}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="chat-sidebar">
+              <div className="chat-section">
+                <h3>💬 Chat & Guesses</h3>
+                <div className="messages" ref={messagesEndRef}>
+                  {messages.map((msg, i) => (
+                    <div key={i} className={`message ${msg.type}`}>
+                      {msg.text}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {game && game.gameState === 'IN_PROGRESS' && !isSpectator && (
         <div className="game-active">
           <div className="game-content">
             <div className="main-content">

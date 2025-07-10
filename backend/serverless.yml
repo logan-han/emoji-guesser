@@ -71,8 +71,8 @@ custom:
       readCapacity: 1
       writeCapacity: 1
     prod:
-      readCapacity: 10
-      writeCapacity: 10
+      readCapacity: 20
+      writeCapacity: 20
 
 resources:
   Resources:
