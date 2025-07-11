@@ -54,13 +54,6 @@ functions:
     events:
       - websocket:
           route: $default
-  listPublicGames:
-    handler: src/websockets.listPublicGames
-    events:
-      - http:
-          path: /games
-          method: get
-          cors: true
 
 custom:
   webpack:
