@@ -473,8 +473,12 @@ const App: React.FC = () => {
         break;
       case 'playerLeft':
         setGame(data.game);
+        // Clear round timer if the game ended due to player disconnect
+        if (data.game.gameState === 'ENDED') {
+          clearRoundTimer();
+        }
         setMessages(prev => [...prev, { 
-          text: 'A player left the game', 
+          text: data.message || 'A player left the game', 
           type: 'system', 
           timestamp: Date.now() 
         }]);

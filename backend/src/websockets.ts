@@ -162,6 +162,189 @@ async function cleanupStalePlayers(game: any, event: APIGatewayEvent): Promise<a
     return game;
 }
 
+// Helper function to handle player disconnect in an active game
+async function handlePlayerDisconnectInActiveGame(game: any, disconnectedPlayer: any, updatedPlayers: any[], event: APIGatewayEvent) {
+    const isDescriber = game.currentDescriberIndex !== undefined && 
+                       game.players[game.currentDescriberIndex].connectionId === disconnectedPlayer.connectionId;
+    
+    console.log(`Player ${disconnectedPlayer.name} disconnected from active game ${game.gameId}. IsDescriber: ${isDescriber}, RemainingPlayers: ${updatedPlayers.length}`);
+    
+    // Handle case where only 2 players remain (or fewer) - end the game
+    if (updatedPlayers.length <= 1) {
+        console.log(`Game ${game.gameId} ending due to insufficient players (${updatedPlayers.length} remaining)`);
+        
+        // End the game
+        game.gameState = 'ENDED';
+        game.players = updatedPlayers;
+        game.endedAt = new Date().toISOString();
+        
+        // Clear any active timeouts
+        const existingTimeout = activeTimeouts.get(game.gameId);
+        if (existingTimeout) {
+            clearTimeout(existingTimeout);
+            activeTimeouts.delete(game.gameId);
+        }
+        
+        const updateParams = {
+            TableName: GAMES_TABLE,
+            Key: { gameId: game.gameId },
+            UpdateExpression: 'set gameState = :s, players = :p, endedAt = :e REMOVE turnState, turnStartTime, secretWord, currentHint, wordOptions, currentDescriberIndex',
+            ExpressionAttributeValues: { 
+                ':s': 'ENDED', 
+                ':p': updatedPlayers,
+                ':e': game.endedAt
+            },
+        };
+        
+        await dynamoDb.update(updateParams).promise();
+        
+        // Notify remaining players
+        const playerIds = updatedPlayers.map((p: any) => p.connectionId);
+        const spectatorIds = game.spectators ? game.spectators.map((s: any) => s.connectionId) : [];
+        const allIds = [...playerIds, ...spectatorIds];
+        
+        await broadcastToPlayers(allIds, { 
+            action: 'gameEnded', 
+            game: { ...game, players: updatedPlayers },
+            message: `Game ended - ${disconnectedPlayer.name} left and there are not enough players to continue.`
+        }, event);
+        
+        console.log(`Game ${game.gameId} ended due to player disconnect. Final players: ${updatedPlayers.length}`);
+        return;
+    }
+    
+    // Handle case where describer leaves and there are 3+ players remaining
+    if (isDescriber && updatedPlayers.length >= 2) {
+        console.log(`Describer ${disconnectedPlayer.name} left game ${game.gameId}. Ending current round and moving to next turn.`);
+        
+        // Update player list and reassign owner if necessary
+        let ownerId = game.ownerId;
+        if (game.ownerId === disconnectedPlayer.connectionId) {
+            ownerId = updatedPlayers[0].connectionId;
+        }
+        
+        // Update current describer index to account for removed player
+        let newDescriberIndex = game.currentDescriberIndex;
+        if (game.currentDescriberIndex >= updatedPlayers.length) {
+            newDescriberIndex = 0; // Wrap around to first player
+        }
+        
+        // Update the game with remaining players and adjust maxRounds
+        game.players = updatedPlayers;
+        game.ownerId = ownerId;
+        game.currentDescriberIndex = newDescriberIndex;
+        game.maxRounds = updatedPlayers.length; // Adjust maxRounds to match new player count
+        
+        // Clear any active timeouts
+        const existingTimeout = activeTimeouts.get(game.gameId);
+        if (existingTimeout) {
+            clearTimeout(existingTimeout);
+            activeTimeouts.delete(game.gameId);
+        }
+        
+        // Move to next turn immediately
+        await nextTurn(game, event);
+        
+        // Notify all players about the disconnect and round end
+        const playerIds = updatedPlayers.map((p: any) => p.connectionId);
+        const spectatorIds = game.spectators ? game.spectators.map((s: any) => s.connectionId) : [];
+        const allIds = [...playerIds, ...spectatorIds];
+        
+        await broadcastToPlayers(allIds, { 
+            action: 'playerLeft', 
+            game,
+            message: `${disconnectedPlayer.name} (describer) left the game. Moving to next turn.`
+        }, event);
+        
+        console.log(`Describer disconnect handled for game ${game.gameId}. Moved to next turn.`);
+        return;
+    }
+    
+    // Handle case where a non-describer leaves (or describer leaves with only 2 players)
+    // Update player list and reassign owner if necessary
+    let ownerId = game.ownerId;
+    if (game.ownerId === disconnectedPlayer.connectionId) {
+        ownerId = updatedPlayers[0].connectionId;
+    }
+    
+    // Update current describer index to account for removed player
+    let newDescriberIndex = game.currentDescriberIndex;
+    if (game.currentDescriberIndex !== undefined) {
+        // If the disconnected player was before the current describer, adjust the index
+        const disconnectedPlayerIndex = game.players.findIndex((p: any) => p.connectionId === disconnectedPlayer.connectionId);
+        if (disconnectedPlayerIndex < game.currentDescriberIndex) {
+            newDescriberIndex = game.currentDescriberIndex - 1;
+        } else if (disconnectedPlayerIndex === game.currentDescriberIndex) {
+            // This case is handled above when isDescriber is true
+            newDescriberIndex = game.currentDescriberIndex;
+        }
+        
+        // Make sure the index is valid
+        if (newDescriberIndex >= updatedPlayers.length) {
+            newDescriberIndex = 0;
+        }
+    }
+    
+    // Update the game
+    game.players = updatedPlayers;
+    game.ownerId = ownerId;
+    game.currentDescriberIndex = newDescriberIndex;
+    game.maxRounds = updatedPlayers.length; // Adjust maxRounds to match new player count
+    
+    const updateParams = {
+        TableName: GAMES_TABLE,
+        Key: { gameId: game.gameId },
+        UpdateExpression: 'set players = :p, ownerId = :o, currentDescriberIndex = :d, maxRounds = :m',
+        ExpressionAttributeValues: { 
+            ':p': updatedPlayers, 
+            ':o': ownerId,
+            ':d': newDescriberIndex,
+            ':m': game.maxRounds
+        }
+    };
+    
+    await dynamoDb.update(updateParams).promise();
+    
+    // Notify remaining players
+    const playerIds = updatedPlayers.map((p: any) => p.connectionId);
+    const spectatorIds = game.spectators ? game.spectators.map((s: any) => s.connectionId) : [];
+    const allIds = [...playerIds, ...spectatorIds];
+    
+    await broadcastToPlayers(allIds, { 
+        action: 'playerLeft', 
+        game: { ...game, players: updatedPlayers, ownerId: ownerId },
+        message: `${disconnectedPlayer.name} left the game.`
+    }, event);
+    
+    console.log(`Player ${disconnectedPlayer.name} left active game ${game.gameId}. Game continues with ${updatedPlayers.length} players.`);
+}
+
+// Helper function to handle normal disconnect for non-active games
+async function handleNormalDisconnect(game: any, updatedPlayers: any[], connectionId: string, event: APIGatewayEvent) {
+    let ownerId = game.ownerId;
+    // If the owner disconnected, assign a new owner
+    if (game.ownerId === connectionId) {
+        ownerId = updatedPlayers[0].connectionId;
+    }
+
+    // Update game with remaining players
+    const updateParams = {
+        TableName: GAMES_TABLE,
+        Key: { gameId: game.gameId },
+        UpdateExpression: 'set players = :p, ownerId = :o',
+        ExpressionAttributeValues: { ':p': updatedPlayers, ':o': ownerId }
+    };
+    await dynamoDb.update(updateParams).promise();
+    
+    // Notify remaining players
+    const playerIds = updatedPlayers.map((p: any) => p.connectionId);
+    await broadcastToPlayers(playerIds, { 
+        action: 'playerLeft', 
+        game: { ...game, players: updatedPlayers, ownerId: ownerId } 
+    }, event);
+    console.log(`Player ${connectionId} left game ${game.gameId}. New owner: ${ownerId}`);
+}
+
 // --- WebSocket Handlers ---
 
 export const connect: APIGatewayProxyHandler = async (event) => {
@@ -190,6 +373,7 @@ export const disconnect: APIGatewayProxyHandler = async (event) => {
         const playerIndex = game.players.findIndex((p: any) => p.connectionId === connectionId);
 
         if (playerIndex > -1) {
+          const disconnectedPlayer = game.players[playerIndex];
           const updatedPlayers = game.players.filter((p: any) => p.connectionId !== connectionId);
           
           if (updatedPlayers.length === 0) {
@@ -197,28 +381,13 @@ export const disconnect: APIGatewayProxyHandler = async (event) => {
             await dynamoDb.delete({ TableName: GAMES_TABLE, Key: { gameId: game.gameId } }).promise();
             console.log(`Game ${game.gameId} deleted as last player disconnected.`);
           } else {
-            let ownerId = game.ownerId;
-            // If the owner disconnected, assign a new owner
-            if (game.ownerId === connectionId) {
-              ownerId = updatedPlayers[0].connectionId;
+            // Handle special cases for active games
+            if (game.gameState === 'IN_PROGRESS') {
+              await handlePlayerDisconnectInActiveGame(game, disconnectedPlayer, updatedPlayers, event as APIGatewayEvent);
+            } else {
+              // Handle normal disconnect for non-active games
+              await handleNormalDisconnect(game, updatedPlayers, disconnectedPlayer.connectionId, event as APIGatewayEvent);
             }
-
-            // Update game with remaining players
-            const updateParams = {
-              TableName: GAMES_TABLE,
-              Key: { gameId: game.gameId },
-              UpdateExpression: 'set players = :p, ownerId = :o',
-              ExpressionAttributeValues: { ':p': updatedPlayers, ':o': ownerId }
-            };
-            await dynamoDb.update(updateParams).promise();
-            
-            // Notify remaining players
-            const playerIds = updatedPlayers.map((p: any) => p.connectionId);
-            await broadcastToPlayers(playerIds, { 
-              action: 'playerLeft', 
-              game: { ...game, players: updatedPlayers, ownerId: ownerId } 
-            }, event as APIGatewayEvent);
-            console.log(`Player ${connectionId} left game ${game.gameId}. New owner: ${ownerId}`);
           }
         }
       }
@@ -752,7 +921,7 @@ async function nextTurn(game: any, event: APIGatewayEvent) {
     const updateParams = {
         TableName: GAMES_TABLE,
         Key: { gameId: game.gameId },
-        UpdateExpression: 'set currentDescriberIndex = :d, turnState = :t, currentRound = :r, players = :p, spectators = :sp, turnStartTime = :ts, wordOptions = :wo REMOVE #sw, #ch',
+        UpdateExpression: 'set currentDescriberIndex = :d, turnState = :t, currentRound = :r, players = :p, spectators = :sp, turnStartTime = :ts, wordOptions = :wo, maxRounds = :m REMOVE #sw, #ch',
         ExpressionAttributeValues: {
             ':d': game.currentDescriberIndex,
             ':t': game.turnState,
@@ -760,7 +929,8 @@ async function nextTurn(game: any, event: APIGatewayEvent) {
             ':p': game.players,
             ':sp': game.spectators || [],
             ':ts': game.turnStartTime,
-            ':wo': game.wordOptions
+            ':wo': game.wordOptions,
+            ':m': game.maxRounds
         },
         ExpressionAttributeNames: {
             '#sw': 'secretWord',
