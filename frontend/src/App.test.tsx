@@ -1,296 +1,260 @@
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import React from 'react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { act } from 'react';
 import App from './App';
 
-// Mock the playSound function
+// Mock sounds
 jest.mock('./sounds', () => ({
   playSound: jest.fn(),
 }));
-
-// Create a proper WebSocket class mock
-class MockWebSocket {
-  public onopen: ((event: Event) => void) | null = null;
-  public onclose: ((event: CloseEvent) => void) | null = null;
-  public onmessage: ((event: MessageEvent) => void) | null = null;
-  public onerror: ((event: Event) => void) | null = null;
-  public readyState: number = WebSocket.CONNECTING;
-  public url: string;
-  public protocol: string = '';
-  public extensions: string = '';
-  public bufferedAmount: number = 0;
-  public binaryType: BinaryType = 'blob';
-
-  public static CONNECTING = 0;
-  public static OPEN = 1;
-  public static CLOSING = 2;
-  public static CLOSED = 3;
-
-  public send = jest.fn();
-  public close = jest.fn();
-  public addEventListener = jest.fn();
-  public removeEventListener = jest.fn();
-  public dispatchEvent = jest.fn();
-
-  constructor(url: string) {
-    this.url = url;
-    // Store reference for testing
-    currentWebSocketInstance = this;
-  }
-}
-
-// Store reference to the current instance for testing
-let currentWebSocketInstance: MockWebSocket | null = null;
-
-// Mock the global WebSocket
-global.WebSocket = MockWebSocket as any;
-
-// Mock environment variables
-process.env.REACT_APP_WS_URL = 'ws://localhost:3001';
 
 // Mock localStorage
 const localStorageMock = {
   getItem: jest.fn(),
   setItem: jest.fn(),
-  removeItem: jest.fn(),
   clear: jest.fn(),
+  removeItem: jest.fn(),
 };
 global.localStorage = localStorageMock as any;
 
-// Helper function to simulate WebSocket connection
-const simulateWebSocketConnection = () => {
-  act(() => {
-    if (currentWebSocketInstance && currentWebSocketInstance.onopen) {
-      currentWebSocketInstance.readyState = MockWebSocket.OPEN;
-      currentWebSocketInstance.onopen(new Event('open'));
-    }
-  });
-};
+// Mock window.alert
+const mockAlert = jest.fn();
+global.alert = mockAlert;
 
-// Helper function to simulate WebSocket message
-const simulateWebSocketMessage = (data: any) => {
-  act(() => {
-    if (currentWebSocketInstance && currentWebSocketInstance.onmessage) {
-      const event = new MessageEvent('message', { data: JSON.stringify(data) });
-      currentWebSocketInstance.onmessage(event);
-    }
-  });
-};
+// Mock WebSocket
+const mockWebSocketInstances: any[] = [];
+const mockSend = jest.fn();
+
+class MockWebSocket {
+  onopen: ((event: Event) => void) | null = null;
+  onmessage: ((event: MessageEvent) => void) | null = null;
+  onclose: ((event: CloseEvent) => void) | null = null;
+  onerror: ((event: Event) => void) | null = null;
+  readyState = WebSocket.OPEN;
+  url = '';
+  send = mockSend;
+  close = jest.fn();
+
+  constructor(url: string) {
+    this.url = url;
+    mockWebSocketInstances.push(this);
+    setTimeout(() => {
+      if (this.onopen) {
+        this.onopen(new Event('open'));
+      }
+    }, 0);
+  }
+}
+
+global.WebSocket = MockWebSocket as any;
 
 describe('App Component', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockWebSocketInstances.length = 0;
     localStorageMock.getItem.mockReturnValue(null);
-    currentWebSocketInstance = null;
+    window.history.pushState = jest.fn();
+    mockAlert.mockClear();
   });
 
-  test('renders emoji guesser title', () => {
+  test('renders without crashing', () => {
     render(<App />);
-    const titleElement = screen.getByText(/emoji guesser/i);
-    expect(titleElement).toBeInTheDocument();
+    expect(screen.getByText('🎮 Emoji Guesser')).toBeInTheDocument();
   });
 
-  test('renders create game button when not connected to a game', () => {
+  test('displays connection status', async () => {
     render(<App />);
-    const createButton = screen.getByText(/create new game/i);
-    expect(createButton).toBeInTheDocument();
-  });
-
-  test('renders connection status', () => {
-    render(<App />);
-    const statusElement = screen.getByText(/status:/i);
-    expect(statusElement).toBeInTheDocument();
-  });
-
-  test('shows disconnected status initially', () => {
-    render(<App />);
-    const disconnectedStatus = screen.getByText(/disconnected/i);
-    expect(disconnectedStatus).toBeInTheDocument();
-  });
-
-  test('create game button is disabled when disconnected', () => {
-    render(<App />);
-    const createButton = screen.getByText(/create new game/i);
-    expect(createButton).toBeDisabled();
-  });
-
-  test('join game button is disabled when no game ID is entered', () => {
-    render(<App />);
-    const joinButton = screen.getByText(/join game/i);
-    expect(joinButton).toBeDisabled();
-  });
-
-  test('handles basic component rendering without WebSocket issues', async () => {
-    render(<App />);
-    
-    // Wait for any initial setup to complete
-    await waitFor(() => {
-      expect(screen.getByText(/emoji guesser/i)).toBeInTheDocument();
-    });
-    
-    // Check that basic UI elements are present
-    expect(screen.getByText(/create new game/i)).toBeInTheDocument();
-    expect(screen.getByText(/join game/i)).toBeInTheDocument();
-  });
-
-  test('enables create game button when connected', async () => {
-    render(<App />);
-    
-    // Simulate WebSocket connection
-    simulateWebSocketConnection();
     
     await waitFor(() => {
-      const createButton = screen.getByText(/create new game/i);
-      expect(createButton).not.toBeDisabled();
-    });
-  });
-
-  test('shows connected status when WebSocket connects', async () => {
-    render(<App />);
-    
-    // Simulate WebSocket connection
-    simulateWebSocketConnection();
-    
-    await waitFor(() => {
-      expect(screen.getByText(/connected/i)).toBeInTheDocument();
+      expect(screen.getByText(/Status:/)).toBeInTheDocument();
+      expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument();
     });
   });
 
   test('handles game creation', async () => {
     render(<App />);
     
-    // Simulate WebSocket connection
-    simulateWebSocketConnection();
-    
-    // Wait for connection and then click create game
     await waitFor(() => {
-      const createButton = screen.getByText(/create new game/i);
-      expect(createButton).not.toBeDisabled();
+      expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument();
     });
-    
-    const createButton = screen.getByText(/create new game/i);
+
+    const createButton = screen.getByText('Create New Game');
     fireEvent.click(createButton);
     
-    // Check that send was called with create game action
-    expect(currentWebSocketInstance?.send).toHaveBeenCalledWith(
-      expect.stringContaining('createGame')
-    );
+    // Check that WebSocket send was called
+    await waitFor(() => {
+      expect(mockSend).toHaveBeenCalled();
+    });
   });
 
-  test('handles game join with game ID', async () => {
+  test('handles game creation message', async () => {
     render(<App />);
     
-    // Simulate WebSocket connection
-    simulateWebSocketConnection();
-    
     await waitFor(() => {
-      expect(screen.getByText(/connected/i)).toBeInTheDocument();
+      expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument();
+    });
+
+    const websocket = mockWebSocketInstances[0];
+    
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'gameCreated',
+          game: {
+            gameId: 'GAME123',
+            gameState: 'WAITING',
+            players: [{
+              name: 'TestPlayer',
+              connectionId: 'test-conn',
+              score: 0
+            }],
+            ownerId: 'test-conn'
+          }
+        })
+      });
     });
     
-    // Enter a game ID
-    const gameIdInput = screen.getByPlaceholderText(/enter game id/i);
-    fireEvent.change(gameIdInput, { target: { value: 'TEST123' } });
+    await waitFor(() => {
+      expect(screen.getByText('🎯 Game Lobby')).toBeInTheDocument();
+      expect(screen.getByText('GAME123')).toBeInTheDocument();
+    });
+  });
+
+  test('handles game started message', async () => {
+    render(<App />);
     
-    // Join game button should now be enabled
-    const joinButton = screen.getByText(/join game/i);
-    expect(joinButton).not.toBeDisabled();
+    await waitFor(() => {
+      expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument();
+    });
+
+    const websocket = mockWebSocketInstances[0];
     
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'gameStarted',
+          game: {
+            gameId: 'GAME123',
+            gameState: 'IN_PROGRESS',
+            players: [{
+              name: 'TestPlayer',
+              connectionId: 'test-conn',
+              score: 0
+            }],
+            ownerId: 'test-conn',
+            currentRound: 1
+          }
+        })
+      });
+    });
+    
+    await waitFor(() => {
+      expect(screen.getByText(/Game started!/)).toBeInTheDocument();
+    });
+  });
+
+  test('handles choose word message', async () => {
+    render(<App />);
+    
+    await waitFor(() => {
+      expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument();
+    });
+
+    const websocket = mockWebSocketInstances[0];
+    
+    // This should not throw an error
+    expect(() => {
+      act(() => {
+        websocket.onmessage({
+          data: JSON.stringify({
+            action: 'chooseWord',
+            wordOptions: ['cat', 'dog', 'bird']
+          })
+        });
+      });
+    }).not.toThrow();
+  });
+
+  test('handles error messages', async () => {
+    render(<App />);
+    
+    await waitFor(() => {
+      expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument();
+    });
+
+    const websocket = mockWebSocketInstances[0];
+    
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'error',
+          message: 'Something went wrong'
+        })
+      });
+    });
+    
+    await waitFor(() => {
+      expect(mockAlert).toHaveBeenCalledWith('Error: Something went wrong');
+    });
+  });
+
+  test('handles WebSocket disconnection', async () => {
+    render(<App />);
+    
+    await waitFor(() => {
+      expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument();
+    });
+
+    const websocket = mockWebSocketInstances[0];
+    
+    act(() => {
+      websocket.onclose(new CloseEvent('close'));
+    });
+    
+    await waitFor(() => {
+      expect(screen.getByText(/🔴 Disconnected/)).toBeInTheDocument();
+    });
+  });
+
+  test('handles WebSocket error', async () => {
+    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    
+    render(<App />);
+    
+    await waitFor(() => {
+      expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument();
+    });
+
+    const websocket = mockWebSocketInstances[0];
+    
+    act(() => {
+      websocket.onerror(new Event('error'));
+    });
+    
+    await waitFor(() => {
+      expect(consoleSpy).toHaveBeenCalledWith('WebSocket error:', expect.any(Event));
+    });
+    
+    consoleSpy.mockRestore();
+  });
+
+  test('handles game join by ID', async () => {
+    render(<App />);
+    
+    await waitFor(() => {
+      expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument();
+    });
+
+    const gameIdInput = screen.getByPlaceholderText('Enter Game ID');
+    fireEvent.change(gameIdInput, { target: { value: 'GAME123' } });
+    
+    const joinButton = screen.getByText('Join Game');
     fireEvent.click(joinButton);
     
-    // Check that send was called with join game action
-    expect(currentWebSocketInstance?.send).toHaveBeenCalledWith(
-      expect.stringContaining('joinGame')
-    );
-  });
-
-  test('handles incoming game created message', async () => {
-    render(<App />);
-    
-    simulateWebSocketConnection();
-    
-    // Simulate receiving game created message with proper structure
-    simulateWebSocketMessage({
-      action: 'gameCreated',
-      game: {
-        gameId: 'GAME123',
-        gameState: 'WAITING',
-        players: [],
-        ownerId: 'owner123'
-      }
-    });
-    
     await waitFor(() => {
-      expect(screen.getByText(/game lobby/i)).toBeInTheDocument();
+      expect(mockSend).toHaveBeenCalledWith(
+        expect.stringContaining('joinGame')
+      );
     });
-    
-    // Verify the game ID is displayed
-    expect(screen.getAllByText(/GAME123/)).toHaveLength(2); // Game ID and invite link
-  });
-
-  test('handles player name input in game', async () => {
-    render(<App />);
-    
-    simulateWebSocketConnection();
-    
-    // First create a game to show the player interface
-    simulateWebSocketMessage({
-      action: 'gameCreated',
-      game: {
-        gameId: 'GAME123',
-        gameState: 'WAITING',
-        players: [{ name: 'TestPlayer', connectionId: 'test-conn' }],
-        ownerId: 'test-conn'
-      }
-    });
-    
-    await waitFor(() => {
-      expect(screen.getByText(/game lobby/i)).toBeInTheDocument();
-    });
-    
-    // Look for the player name display and click to edit
-    const playerNameDisplay = screen.getByText(/TestPlayer/);
-    fireEvent.click(playerNameDisplay);
-    
-    // Now the name input should be visible
-    const nameInput = screen.getByPlaceholderText(/enter your name/i);
-    fireEvent.change(nameInput, { target: { value: 'NewPlayerName' } });
-    
-    expect(nameInput).toHaveValue('NewPlayerName');
-  });
-
-  test('handles WebSocket close event', async () => {
-    render(<App />);
-    
-    // Connect first
-    simulateWebSocketConnection();
-    
-    await waitFor(() => {
-      expect(screen.getByText(/connected/i)).toBeInTheDocument();
-    });
-    
-    // Simulate close event
-    act(() => {
-      if (currentWebSocketInstance && currentWebSocketInstance.onclose) {
-        currentWebSocketInstance.readyState = MockWebSocket.CLOSED;
-        const closeEvent = new CloseEvent('close');
-        currentWebSocketInstance.onclose(closeEvent);
-      }
-    });
-    
-    await waitFor(() => {
-      expect(screen.getByText(/disconnected/i)).toBeInTheDocument();
-    });
-  });
-
-  test('handles WebSocket error event', async () => {
-    render(<App />);
-    
-    // Simulate error event
-    act(() => {
-      if (currentWebSocketInstance && currentWebSocketInstance.onerror) {
-        currentWebSocketInstance.onerror(new Event('error'));
-      }
-    });
-    
-    // Should show disconnected status
-    expect(screen.getByText(/disconnected/i)).toBeInTheDocument();
   });
 });

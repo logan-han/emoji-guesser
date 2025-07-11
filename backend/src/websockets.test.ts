@@ -119,6 +119,91 @@ describe('WebSocket Handler Tests', () => {
       expect(mockPostToConnection).toHaveBeenCalled();
     });
 
+    test('handles joinGame action', async () => {
+      const existingGame = {
+        gameId: 'existing-game',
+        ownerId: 'owner-123',
+        players: [{ connectionId: 'owner-123', name: 'Owner' }],
+        gameState: 'WAITING'
+      };
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: existingGame }) });
+
+      const joinGameEvent = {
+        ...mockEvent,
+        body: JSON.stringify({
+          action: 'joinGame',
+          gameId: 'existing-game',
+          playerName: 'Test Player'
+        })
+      };
+
+      const result = await default_handler(joinGameEvent as APIGatewayEvent, {} as any, {} as any);
+
+      expect(result).toEqual({
+        statusCode: 200,
+        body: 'Message handled.'
+      });
+      expect(mockGet).toHaveBeenCalled();
+    });
+
+    test('handles joinGame with non-existent game', async () => {
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({}) });
+
+      const joinGameEvent = {
+        ...mockEvent,
+        body: JSON.stringify({
+          action: 'joinGame',
+          gameId: 'non-existent-game',
+          playerName: 'Test Player'
+        })
+      };
+
+      const result = await default_handler(joinGameEvent as APIGatewayEvent, {} as any, {} as any);
+
+      expect(result).toEqual({
+        statusCode: 200,
+        body: 'Message handled.'
+      });
+      expect(mockPostToConnection).toHaveBeenCalledWith({
+        ConnectionId: 'test-connection-123',
+        Data: JSON.stringify({ action: 'error', message: 'Game not found.' })
+      });
+    });
+
+    test('handles heartbeat action', async () => {
+      const heartbeatEvent = {
+        ...mockEvent,
+        body: JSON.stringify({
+          action: 'heartbeat',
+          sessionId: 'test-session-123'
+        })
+      };
+
+      const result = await default_handler(heartbeatEvent as APIGatewayEvent, {} as any, {} as any);
+
+      expect(result).toEqual({
+        statusCode: 200,
+        body: 'Message handled.'
+      });
+    });
+
+    test('handles unknown action', async () => {
+      const unknownEvent = {
+        ...mockEvent,
+        body: JSON.stringify({
+          action: 'unknownAction',
+          data: 'test'
+        })
+      };
+
+      const result = await default_handler(unknownEvent as APIGatewayEvent, {} as any, {} as any);
+
+      expect(result).toEqual({
+        statusCode: 200,
+        body: 'Message handled.'
+      });
+    });
+
     test('handles invalid JSON with error response', async () => {
       const eventWithBody = {
         ...mockEvent,
