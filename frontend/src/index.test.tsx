@@ -2,6 +2,9 @@
 const mockRender = jest.fn();
 const mockCreateRoot = jest.fn();
 
+// Make this file a module to satisfy --isolatedModules
+export {};
+
 // Set up the mock to return an object with render method
 mockCreateRoot.mockReturnValue({ render: mockRender });
 
