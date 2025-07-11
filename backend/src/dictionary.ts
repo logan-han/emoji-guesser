@@ -72,15 +72,22 @@ export function generateHint(word: string, timeElapsed: number, totalTime: numbe
     return normalizedWord.replace(/./g, '_ ').trim();
   }
   
-  // Calculate reveal intervals based on total time and number of letters to reveal
-  // Distribute the reveals evenly throughout the round duration
-  const revealInterval = totalTime / (maxRevealCount + 1); // +1 to account for initial delay
+  // Calculate reveal intervals - generous timing with early first hint
+  // First hint appears after 15% of total time, then evenly spaced
+  const firstHintDelay = totalTime * 0.15; // 15% of total time before first reveal
+  const remainingTime = totalTime - firstHintDelay;
+  const revealInterval = remainingTime / maxRevealCount;
   
   // Calculate how many letters should be revealed based on time elapsed
-  let lettersToReveal = Math.floor(timeElapsed / revealInterval);
+  let lettersToReveal = 0;
+  if (timeElapsed >= firstHintDelay) {
+    lettersToReveal = Math.floor((timeElapsed - firstHintDelay) / revealInterval) + 1;
+  }
   
   // Cap at maximum reveal count
   lettersToReveal = Math.min(lettersToReveal, maxRevealCount);
+  
+  console.log(`Hint generation - Word: ${word}, TimeElapsed: ${timeElapsed}ms, TotalTime: ${totalTime}ms, LettersToReveal: ${lettersToReveal}/${maxRevealCount}, FirstHintAt: ${firstHintDelay}ms, Interval: ${revealInterval}ms`);
   
   if (lettersToReveal === 0) {
     // Show only blanks initially
@@ -88,7 +95,8 @@ export function generateHint(word: string, timeElapsed: number, totalTime: numbe
   }
   
   // Create a deterministic but random-looking order for revealing letters
-  const letterPositions = Array.from({ length: wordLength }, (_, i) => i);
+  // Always exclude the last letter from being revealed
+  const letterPositions = Array.from({ length: wordLength - 1 }, (_, i) => i);
   
   // Shuffle the positions array consistently based on the word itself
   let wordHash = 0;
@@ -106,9 +114,15 @@ export function generateHint(word: string, timeElapsed: number, totalTime: numbe
     letterPositions.slice(0, lettersToReveal)
   );
   
-  // Build the hint string
+  // Build the hint string - always keep the last letter hidden
   return normalizedWord
     .split('')
-    .map((letter, index) => positionsToReveal.has(index) ? letter.toUpperCase() : '_')
+    .map((letter, index) => {
+      if (index === wordLength - 1) {
+        // Always hide the last letter
+        return '_';
+      }
+      return positionsToReveal.has(index) ? letter.toUpperCase() : '_';
+    })
     .join(' ');
 }

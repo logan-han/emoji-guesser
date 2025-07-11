@@ -155,7 +155,8 @@ const App: React.FC = () => {
 
   const fetchPublicGames = async () => {
     try {
-      const response = await fetch(process.env.REACT_APP_API_URL + '/games');
+      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:3000';
+      const response = await fetch(`${apiUrl}/games`);
       const data = await response.json();
       setPublicGames(data);
     } catch (error) {
