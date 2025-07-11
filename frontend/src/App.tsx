@@ -702,7 +702,7 @@ const App: React.FC = () => {
                           onChange={(e) => setPlayerName(e.target.value)}
                           onBlur={(e) => {
                             const trimmedValue = e.target.value.trim();
-                            if (trimmedValue && trimmedValue.length > 0) {
+                            if (trimmedValue.length > 0) {
                               updatePlayerName(trimmedValue);
                             } else {
                               setEditingName(false);

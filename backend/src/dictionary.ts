@@ -30,7 +30,7 @@ export async function getRandomWords(): Promise<string[]> {
       // Add unique nouns that meet the length criteria
       for (const noun of foundNouns) {
         const cleanNoun = noun.toLowerCase().trim();
-        if (cleanNoun.length <= 12 && !nouns.includes(cleanNoun)) {
+        if (cleanNoun.length <= 12 && !nouns.includes(cleanNoun) && !cleanNoun.includes(' ')) {
           nouns.push(cleanNoun);
           if (nouns.length >= 3) {
             break;
