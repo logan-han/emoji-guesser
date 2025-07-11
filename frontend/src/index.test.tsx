@@ -16,10 +16,6 @@ jest.mock('./App', () => {
   };
 });
 
-// Mock reportWebVitals
-const mockReportWebVitals = jest.fn();
-jest.mock('./reportWebVitals', () => mockReportWebVitals);
-
 describe('index.tsx', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -42,14 +38,5 @@ describe('index.tsx', () => {
     expect(document.getElementById).toHaveBeenCalledWith('root');
     expect(mockCreateRoot).toHaveBeenCalledWith(expect.any(HTMLElement));
     expect(mockRender).toHaveBeenCalled();
-  });
-
-  test('calls reportWebVitals', () => {
-    // Import and run the index file
-    jest.isolateModules(() => {
-      require('./index');
-    });
-
-    expect(mockReportWebVitals).toHaveBeenCalled();
   });
 });

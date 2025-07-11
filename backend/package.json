@@ -47,6 +47,8 @@
     "collectCoverageFrom": [
       "src/**/*.ts",
       "!src/**/*.d.ts"
-    ]
+    ],
+    "watchman": false,
+    "maxWorkers": 1
   }
 }
