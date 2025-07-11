@@ -10,6 +10,7 @@ export const soundEffects = {
   gameEnd: '/sounds/game-end.mp3',
   emojiSelect: '/sounds/emoji-select.mp3',
   newGuess: '/sounds/new-guess.mp3',
+  timeUp: '/sounds/time-up.mp3',
 };
 
 // Function to play a sound

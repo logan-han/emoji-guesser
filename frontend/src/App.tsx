@@ -445,6 +445,7 @@ const App: React.FC = () => {
         }]);
         break;
       case 'timeUp':
+        playSound('timeUp');
         setMessages(prev => [...prev, { 
           text: data.message || "⏰ Time's up! Moving to next turn...", 
           type: 'system', 
