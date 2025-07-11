@@ -78,7 +78,6 @@ const App: React.FC = () => {
     if (savedPlayerName) {
       setPlayerName(savedPlayerName);
     }
-    fetchPublicGames();
   }, []);
 
   useEffect(() => {
@@ -101,6 +100,9 @@ const App: React.FC = () => {
         }
       }, 30000); // Every 30 seconds
       heartbeatIntervalRef.current = interval;
+
+      // Fetch public games when connected
+      fetchPublicGames();
 
       const urlParams = new URLSearchParams(window.location.search);
       const gameId = urlParams.get('gameId');
@@ -153,14 +155,10 @@ const App: React.FC = () => {
     }
   }, [messages]);
 
-  const fetchPublicGames = async () => {
-    try {
-      const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:3000';
-      const response = await fetch(`${apiUrl}/games`);
-      const data = await response.json();
-      setPublicGames(data);
-    } catch (error) {
-      console.error('Failed to fetch public games:', error);
+  const fetchPublicGames = () => {
+    // Request public games list through WebSocket
+    if (ws && connected) {
+      sendMessage({ action: 'listPublicGames' });
     }
   };
 
@@ -475,6 +473,9 @@ const App: React.FC = () => {
       case 'heartbeatAck':
         // Heartbeat acknowledged, connection is alive
         break;
+      case 'publicGamesList':
+        setPublicGames(data.games || []);
+        break;
       case 'statusMessage':
         setMessages(prev => [...prev, { 
           text: data.message, 
@@ -638,6 +639,13 @@ const App: React.FC = () => {
           </div>
           <div className="public-games-list">
             <h3>Public Games</h3>
+            <button 
+              onClick={fetchPublicGames} 
+              disabled={!connected}
+              className="refresh-games-btn"
+            >
+              🔄 Refresh
+            </button>
             {publicGames.length > 0 ? (
               <ul>
                 {publicGames.map((game) => (
