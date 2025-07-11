@@ -298,7 +298,7 @@ async function createGame(connectionId: string, event: APIGatewayEvent, sessionI
         }],
         gameState: 'WAITING',
         createdAt: new Date().toISOString(),
-        timeLimit: timeLimit || 180, // Use provided timeLimit or default to 3 minutes
+        timeLimit: timeLimit || 120, // Use provided timeLimit or default to 2 minutes
         maxRounds: 0, // Will be set to number of players when game starts
         ttl,
         isPublic: isPublic || false,
@@ -511,7 +511,10 @@ async function startGame(connectionId: string, gameId: string, event: APIGateway
         console.log(`Game ${gameId} started`);
 
         const playerIds = game.players.map((p: any) => p.connectionId);
-        await broadcastToPlayers(playerIds, { action: 'gameStarted', game }, event);
+        const spectatorIds = game.spectators ? game.spectators.map((s: any) => s.connectionId) : [];
+        const allIds = [...playerIds, ...spectatorIds];
+        
+        await broadcastToPlayers(allIds, { action: 'gameStarted', game }, event);
 
         // Notify the current describer to choose a word
         const describerId = game.players[game.currentDescriberIndex].connectionId;
@@ -520,9 +523,9 @@ async function startGame(connectionId: string, gameId: string, event: APIGateway
             wordOptions: game.wordOptions 
         }, event);
         
-        // Send status message to all players
+        // Send status message to all players and spectators
         const describerName = game.players[game.currentDescriberIndex].name;
-        await broadcastToPlayers(playerIds, { 
+        await broadcastToPlayers(allIds, { 
             action: 'statusMessage', 
             message: `${describerName} is choosing a word...`,
             timestamp: Date.now()
@@ -582,8 +585,11 @@ async function chooseWord(connectionId: string, gameId: string, word: string, ev
 
         // Notify all other players that the turn has started with the hint
         const playerIds = game.players.map((p: any) => p.connectionId);
+        const spectatorIds = game.spectators ? game.spectators.map((s: any) => s.connectionId) : [];
         const nonDescriberIds = playerIds.filter((id: string) => id !== describerId);
-        await broadcastToPlayers(nonDescriberIds, { 
+        
+        // Include spectators in turn start notifications
+        await broadcastToPlayers([...nonDescriberIds, ...spectatorIds], { 
             action: 'turnStarted', 
             game,
             hint: game.currentHint
@@ -665,7 +671,10 @@ async function submitGuess(connectionId: string, gameId: string, guess: string, 
             describer.score += 75; // Points for successful description
 
             const playerIds = game.players.map((p: any) => p.connectionId);
-            await broadcastToPlayers(playerIds, { 
+            const spectatorIds = game.spectators ? game.spectators.map((s: any) => s.connectionId) : [];
+            const allIds = [...playerIds, ...spectatorIds];
+            
+            await broadcastToPlayers(allIds, { 
                 action: 'wordGuessed', 
                 guesserName: guesser.name,
                 word: game.secretWord,
@@ -676,9 +685,12 @@ async function submitGuess(connectionId: string, gameId: string, guess: string, 
             await nextTurn(game, event);
 
         } else {
-            // Incorrect guess - broadcast to all players
+            // Incorrect guess - broadcast to all players and spectators
             const playerIds = game.players.map((p: any) => p.connectionId);
-            await broadcastToPlayers(playerIds, { 
+            const spectatorIds = game.spectators ? game.spectators.map((s: any) => s.connectionId) : [];
+            const allIds = [...playerIds, ...spectatorIds];
+            
+            await broadcastToPlayers(allIds, { 
                 action: 'newGuess', 
                 text: `${player.name}: ${guess}`,
                 guesserId: connectionId
@@ -698,12 +710,6 @@ async function nextTurn(game: any, event: APIGatewayEvent) {
         activeTimeouts.delete(game.gameId);
     }
 
-    // Move spectators to players at the start of a new round
-    if (game.spectators && game.spectators.length > 0) {
-        game.players.push(...game.spectators);
-        game.spectators = [];
-    }
-
     // Check if all players have had their turn
     if (game.currentRound >= game.maxRounds) {
         // Game ended
@@ -719,16 +725,21 @@ async function nextTurn(game: any, event: APIGatewayEvent) {
         await dynamoDb.update(updateParams).promise();
         
         const playerIds = game.players.map((p: any) => p.connectionId);
-        await broadcastToPlayers(playerIds, { action: 'gameEnded', game }, event);
+        const spectatorIds = game.spectators ? game.spectators.map((s: any) => s.connectionId) : [];
+        const allIds = [...playerIds, ...spectatorIds];
+        
+        await broadcastToPlayers(allIds, { action: 'gameEnded', game }, event);
         return;
     }
 
     // Move to next turn
     game.currentDescriberIndex = (game.currentDescriberIndex + 1) % game.players.length;
     
-    // If we've gone through all players once, increment round
+    // If we've gone through all players once, increment round but DON'T add spectators mid-game
+    // Spectators should only join at the beginning of a new game to avoid disrupting indices
     if (game.currentDescriberIndex === 0) {
         game.currentRound += 1;
+        // Note: Spectators will be added to players when the game restarts, not during active gameplay
     }
     
     // Generate new word options for the next describer
@@ -741,12 +752,13 @@ async function nextTurn(game: any, event: APIGatewayEvent) {
     const updateParams = {
         TableName: GAMES_TABLE,
         Key: { gameId: game.gameId },
-        UpdateExpression: 'set currentDescriberIndex = :d, turnState = :t, currentRound = :r, players = :p, turnStartTime = :ts, wordOptions = :wo REMOVE #sw, #ch',
+        UpdateExpression: 'set currentDescriberIndex = :d, turnState = :t, currentRound = :r, players = :p, spectators = :sp, turnStartTime = :ts, wordOptions = :wo REMOVE #sw, #ch',
         ExpressionAttributeValues: {
             ':d': game.currentDescriberIndex,
             ':t': game.turnState,
             ':r': game.currentRound,
             ':p': game.players,
+            ':sp': game.spectators || [],
             ':ts': game.turnStartTime,
             ':wo': game.wordOptions
         },
@@ -759,7 +771,10 @@ async function nextTurn(game: any, event: APIGatewayEvent) {
     await dynamoDb.update(updateParams).promise();
 
     const playerIds = game.players.map((p: any) => p.connectionId);
-    await broadcastToPlayers(playerIds, { action: 'nextTurn', game }, event);
+    const spectatorIds = game.spectators ? game.spectators.map((s: any) => s.connectionId) : [];
+    const allIds = [...playerIds, ...spectatorIds];
+    
+    await broadcastToPlayers(allIds, { action: 'nextTurn', game }, event);
     
     // Notify the new describer to choose a word
     const describerId = game.players[game.currentDescriberIndex].connectionId;
@@ -768,9 +783,9 @@ async function nextTurn(game: any, event: APIGatewayEvent) {
         wordOptions: game.wordOptions 
     }, event);
     
-    // Send status message to all players
+    // Send status message to all players and spectators
     const describerName = game.players[game.currentDescriberIndex].name;
-    await broadcastToPlayers(playerIds, { 
+    await broadcastToPlayers(allIds, { 
         action: 'statusMessage', 
         message: `${describerName} is choosing a word...`,
         timestamp: Date.now()
@@ -926,7 +941,10 @@ async function handleTimeUp(gameId: string, event: APIGatewayEvent) {
 
         // End the current round due to timeout
         const playerIds = game.players.map((p: any) => p.connectionId);
-        await broadcastToPlayers(playerIds, { 
+        const spectatorIds = game.spectators ? game.spectators.map((s: any) => s.connectionId) : [];
+        const allIds = [...playerIds, ...spectatorIds];
+        
+        await broadcastToPlayers(allIds, { 
             action: 'timeUp', 
             message: "⏰ Time's up! Moving to next turn...",
             word: game.secretWord
@@ -986,12 +1004,16 @@ async function updateHint(gameId: string, event: APIGatewayEvent) {
 
         await dynamoDb.update(updateParams).promise();
 
-        // Broadcast updated hint to all non-describer players
+        // Broadcast updated hint to all non-describer players and spectators
         const playerIds = game.players.map((p: any) => p.connectionId);
+        const spectatorIds = game.spectators ? game.spectators.map((s: any) => s.connectionId) : [];
         const describerId = game.players[game.currentDescriberIndex].connectionId;
         const nonDescriberIds = playerIds.filter((id: string) => id !== describerId);
         
-        await broadcastToPlayers(nonDescriberIds, { 
+        // Include spectators in hint updates
+        const allNonDescriberIds = [...nonDescriberIds, ...spectatorIds];
+        
+        await broadcastToPlayers(allNonDescriberIds, { 
             action: 'hintUpdated', 
             hint: game.currentHint
         }, event);
@@ -1109,6 +1131,18 @@ async function restartGame(connectionId: string, gameId: string, event: APIGatew
         game.endedAt = undefined;
         game.ttl = Math.floor(Date.now() / 1000) + 86400; // 24 hours from now
         
+        // Add spectators to players array for the new game
+        if (game.spectators && game.spectators.length > 0) {
+            // Convert spectators to players
+            const newPlayers = game.spectators.map((spectator: any) => ({
+                ...spectator,
+                score: 0,
+                isSpectator: undefined // Remove spectator flag
+            }));
+            game.players.push(...newPlayers);
+            game.spectators = [];
+        }
+        
         // Reset player scores and mark all players as ready (they can opt out later)
         game.players.forEach((player: any) => {
             player.score = 0;
@@ -1127,10 +1161,11 @@ async function restartGame(connectionId: string, gameId: string, event: APIGatew
         const updateParams = {
             TableName: GAMES_TABLE,
             Key: { gameId },
-            UpdateExpression: 'set gameState = :s, players = :p, timeLimit = :tl REMOVE currentRound, maxRounds, currentDescriberIndex, turnState, turnStartTime, endedAt, secretWord, wordOptions, currentHint',
+            UpdateExpression: 'set gameState = :s, players = :p, spectators = :sp, timeLimit = :tl REMOVE currentRound, maxRounds, currentDescriberIndex, turnState, turnStartTime, endedAt, secretWord, wordOptions, currentHint',
             ExpressionAttributeValues: {
                 ':s': game.gameState,
                 ':p': game.players,
+                ':sp': game.spectators || [],
                 ':tl': game.timeLimit
             },
         };

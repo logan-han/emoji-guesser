@@ -56,27 +56,31 @@ export async function getRandomWords(): Promise<string[]> {
 
 /**
  * Generates hint pattern for a word
- * Shows blanks initially, then gradually reveals letters at stable intervals
- * Maintains previously revealed letters
- * Ensures the last letter is revealed at least 10 seconds before time is up
+ * Shows blanks initially, then gradually reveals letters based on elapsed time
+ * Letters are revealed at evenly distributed intervals throughout the round
+ * Always keeps the last letter hidden for guessing
  */
 export function generateHint(word: string, timeElapsed: number, totalTime: number): string {
   const normalizedWord = word.toLowerCase();
   const wordLength = normalizedWord.length;
   
-  // Reveal one letter every 30 seconds
-  const revealInterval = 30000; // 30 seconds in milliseconds
+  // Always leave at least one letter hidden for guessing
+  const maxRevealCount = Math.max(0, wordLength - 1);
+  
+  if (maxRevealCount === 0) {
+    // Single letter word - show as blank
+    return normalizedWord.replace(/./g, '_ ').trim();
+  }
+  
+  // Calculate reveal intervals based on total time and number of letters to reveal
+  // Distribute the reveals evenly throughout the round duration
+  const revealInterval = totalTime / (maxRevealCount + 1); // +1 to account for initial delay
   
   // Calculate how many letters should be revealed based on time elapsed
   let lettersToReveal = Math.floor(timeElapsed / revealInterval);
   
-  // Ensure we don't reveal all letters, leave the last one for guessing
-  const maxRevealCount = Math.max(0, wordLength - 1);
+  // Cap at maximum reveal count
   lettersToReveal = Math.min(lettersToReveal, maxRevealCount);
-
-  if (timeElapsed >= totalTime - 10000 && lettersToReveal === 0 && wordLength > 1) {
-    lettersToReveal = 1; // Reveal at least one letter in the last 10 seconds
-  }
   
   if (lettersToReveal === 0) {
     // Show only blanks initially

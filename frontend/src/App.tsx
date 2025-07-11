@@ -57,7 +57,7 @@ const App: React.FC = () => {
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [editingName, setEditingName] = useState<boolean>(false);
   const [copyFeedback, setCopyFeedback] = useState<boolean>(false);
-  const [timeLimit, setTimeLimit] = useState<number>(180); // 3 minutes in seconds
+  const [timeLimit, setTimeLimit] = useState<number>(120); // 2 minutes in seconds
   const [roundTimeLeft, setRoundTimeLeft] = useState<number | null>(null);
   const [timerInterval, setTimerInterval] = useState<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -239,13 +239,13 @@ const App: React.FC = () => {
         sendMessage({ action: 'updateHint', gameId: game.gameId });
       }, 2000); // Update hint every 2 seconds for smoother updates
       
-      // In the last 30 seconds, update even more frequently to catch timeouts
+      // In the final 5 seconds, update more frequently but not too aggressively
       let aggressiveInterval: NodeJS.Timeout | null = null;
       const timeLeft = roundTimeLeft;
-      if (timeLeft !== null && timeLeft <= 30) {
+      if (timeLeft !== null && timeLeft <= 5) {
         aggressiveInterval = setInterval(() => {
           sendMessage({ action: 'updateHint', gameId: game.gameId });
-        }, 500); // Every 500ms in the final 30 seconds
+        }, 1000); // Every 1 second in the final 5 seconds
       }
       
       return () => {
@@ -509,6 +509,13 @@ const App: React.FC = () => {
     // Ensure name is not empty and at least 1 character
     const trimmedName = newName.trim();
     if (!trimmedName || trimmedName.length === 0) {
+      // Reset to the current player's name from the game state
+      if (game) {
+        const currentPlayer = game.players.find(p => isCurrentPlayer(p));
+        if (currentPlayer) {
+          setPlayerName(currentPlayer.name);
+        }
+      }
       setEditingName(false);
       return;
     }
@@ -705,6 +712,11 @@ const App: React.FC = () => {
                             if (trimmedValue.length > 0) {
                               updatePlayerName(trimmedValue);
                             } else {
+                              // Reset to original name and exit editing mode
+                              const currentPlayer = game.players.find(p => isCurrentPlayer(p));
+                              if (currentPlayer) {
+                                setPlayerName(currentPlayer.name);
+                              }
                               setEditingName(false);
                             }
                           }}
@@ -714,6 +726,11 @@ const App: React.FC = () => {
                               if (trimmedValue && trimmedValue.length > 0) {
                                 updatePlayerName(trimmedValue);
                               } else {
+                                // Reset to original name and exit editing mode
+                                const currentPlayer = game.players.find(p => isCurrentPlayer(p));
+                                if (currentPlayer) {
+                                  setPlayerName(currentPlayer.name);
+                                }
                                 setEditingName(false);
                               }
                             } else if (e.key === 'Escape') {
