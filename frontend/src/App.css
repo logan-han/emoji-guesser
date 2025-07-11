@@ -984,20 +984,280 @@
   color: #4b5563;
 }
 
-/* Mobile responsiveness for new components */
+/* Public Games Table Styles */
+.public-games-list {
+  margin-top: 30px;
+  padding: 20px;
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  backdrop-filter: blur(10px);
+}
+
+.public-games-list h3 {
+  color: #1f2937;
+  margin-bottom: 20px;
+  font-size: 1.3rem;
+  text-align: center;
+}
+
+.games-table-container {
+  overflow-x: auto;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
+}
+
+.games-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.games-table th {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  color: white;
+  padding: 15px 12px;
+  text-align: center;
+  font-weight: 600;
+  border: none;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+.games-table th:first-child {
+  border-top-left-radius: 10px;
+}
+
+.games-table th:last-child {
+  border-top-right-radius: 10px;
+}
+
+.games-table td {
+  padding: 12px;
+  border-bottom: 1px solid #e5e7eb;
+  vertical-align: middle;
+}
+
+.games-table tr:hover {
+  background: rgba(102, 126, 234, 0.05);
+}
+
+.games-table tr:last-child td {
+  border-bottom: none;
+}
+
+.game-id-cell code {
+  background: #f3f4f6;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-family: 'Monaco', 'Menlo', monospace;
+  font-size: 0.85rem;
+  color: #374151;
+}
+
+.status-cell {
+  text-align: center;
+}
+
+.status-badge {
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  display: inline-block;
+  text-align: center;
+  min-width: 70px;
+}
+
+.status-badge.waiting {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.status-badge.playing {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.player-count-cell {
+  text-align: center;
+}
+
+.player-count {
+  font-weight: 500;
+  color: #4b5563;
+}
+
+.player-names-cell {
+  max-width: 200px;
+}
+
+.player-names {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.player-tag {
+  background: #e0e7ff;
+  color: #3730a3;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.more-players {
+  background: #f3f4f6;
+  color: #6b7280;
+  padding: 2px 6px;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+
+.empty-players {
+  color: #9ca3af;
+  font-style: italic;
+  font-size: 0.85rem;
+}
+
+.action-cell {
+  text-align: center;
+}
+
+.join-table-btn {
+  background: linear-gradient(135deg, #10b981, #059669);
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  min-width: 70px;
+}
+
+.join-table-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 3px 10px rgba(16, 185, 129, 0.3);
+}
+
+.join-table-btn:disabled {
+  background: #9ca3af;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.no-games-message {
+  text-align: center;
+  padding: 40px 20px;
+  color: white;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  border: 2px dashed rgba(255, 255, 255, 0.3);
+}
+
+.no-games-icon {
+  font-size: 3rem;
+  margin-bottom: 15px;
+}
+
+.no-games-message p {
+  margin-bottom: 5px;
+  font-size: 1.1rem;
+}
+
+.no-games-message small {
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 0.9rem;
+}
+
+/* Create Game Options - Radio Button Styles */
+.create-game-options {
+  display: flex;
+  gap: 15px;
+  margin-bottom: 20px;
+  justify-content: center;
+  align-items: center;
+}
+
+.create-game-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 20px;
+  background: rgba(255, 255, 255, 0.1);
+  border: 2px solid transparent;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-weight: 500;
+  color: #374151;
+  backdrop-filter: blur(10px);
+  position: relative;
+  min-width: 130px;
+  justify-content: center;
+}
+
+.create-game-options label:hover {
+  background: rgba(255, 255, 255, 0.2);
+  border-color: rgba(102, 126, 234, 0.3);
+  transform: translateY(-1px);
+}
+
+.create-game-options label:has(input:checked) {
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  border-color: #667eea;
+  color: white;
+  box-shadow: 0 4px 15px rgba(102, 126, 234, 0.3);
+  transform: translateY(-2px);
+}
+
+.create-game-options input[type="radio"] {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid #d1d5db;
+  border-radius: 50%;
+  position: relative;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: white;
+}
+
+.create-game-options input[type="radio"]:checked {
+  border-color: white;
+  background: white;
+}
+
+.create-game-options input[type="radio"]:checked::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #667eea;
+}
+
+.create-game-options label:has(input:checked) input[type="radio"]::after {
+  background: #667eea;
+}
+
+/* Mobile responsive for radio buttons */
 @media (max-width: 768px) {
-  .word-options {
+  .create-game-options {
     flex-direction: column;
-    align-items: center;
+    gap: 10px;
   }
   
-  .word-option-btn {
-    width: 90%;
-    max-width: 250px;
-  }
-  
-  .hint-display {
-    font-size: 1.4rem;
-    padding: 12px;
+  .create-game-options label {
+    width: 100%;
+    max-width: 200px;
   }
 }

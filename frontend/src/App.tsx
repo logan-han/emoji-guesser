@@ -101,9 +101,6 @@ const App: React.FC = () => {
       }, 30000); // Every 30 seconds
       heartbeatIntervalRef.current = interval;
 
-      // Fetch public games when connected
-      fetchPublicGames();
-
       const urlParams = new URLSearchParams(window.location.search);
       const gameId = urlParams.get('gameId');
       if (gameId) {
@@ -155,18 +152,33 @@ const App: React.FC = () => {
     }
   }, [messages]);
 
-  const fetchPublicGames = () => {
-    // Request public games list through WebSocket
-    if (ws && connected) {
-      sendMessage({ action: 'listPublicGames' });
-    }
-  };
-
   const sendMessage = useCallback((message: any) => {
     if (ws && connected) {
       ws.send(JSON.stringify(message));
     }
   }, [ws, connected]);
+
+  const fetchPublicGames = useCallback(() => {
+    // Request public games list through WebSocket
+    if (ws && connected) {
+      sendMessage({ action: 'listPublicGames' });
+    }
+  }, [ws, connected, sendMessage]);
+
+  // Fetch public games when connected and periodically refresh
+  useEffect(() => {
+    if (connected && ws && !game) {
+      // Fetch immediately when connected
+      fetchPublicGames();
+      
+      // Set up periodic refresh every 5 seconds, but only when not in a game
+      const interval = setInterval(() => {
+        fetchPublicGames();
+      }, 5000);
+      
+      return () => clearInterval(interval);
+    }
+  }, [connected, ws, fetchPublicGames, game]);
 
   const startRoundTimer = useCallback((gameState: Game) => {
     // Clear any existing timer
@@ -638,25 +650,71 @@ const App: React.FC = () => {
             </div>
           </div>
           <div className="public-games-list">
-            <h3>Public Games</h3>
-            <button 
-              onClick={fetchPublicGames} 
-              disabled={!connected}
-              className="refresh-games-btn"
-            >
-              🔄 Refresh
-            </button>
+            <h3>🌍 Public Games</h3>
             {publicGames.length > 0 ? (
-              <ul>
-                {publicGames.map((game) => (
-                  <li key={game.gameId}>
-                    <span>{game.gameId} - {game.players.length} players</span>
-                    <button onClick={() => joinGameById(game.gameId)}>Join</button>
-                  </li>
-                ))}
-              </ul>
+              <div className="games-table-container">
+                <table className="games-table">
+                  <thead>
+                    <tr>
+                      <th>Game ID</th>
+                      <th>Status</th>
+                      <th>Players</th>
+                      <th>Player Names</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {publicGames.map((publicGame) => (
+                      <tr key={publicGame.gameId} className="game-row">
+                        <td className="game-id-cell">
+                          <code>#{publicGame.gameId}</code>
+                        </td>
+                        <td className="status-cell">
+                          <span className={`status-badge ${publicGame.gameState === 'WAITING' ? 'waiting' : 'playing'}`}>
+                            {publicGame.gameState === 'WAITING' ? '⏳ Waiting' : '🎮 Playing'}
+                          </span>
+                        </td>
+                        <td className="player-count-cell">
+                          <span className="player-count">
+                            👥 {publicGame.players.length}
+                          </span>
+                        </td>
+                        <td className="player-names-cell">
+                          {publicGame.players.length > 0 ? (
+                            <div className="player-names">
+                              {publicGame.players.slice(0, 3).map((player, idx) => (
+                                <span key={idx} className="player-tag">
+                                  {player.name}
+                                </span>
+                              ))}
+                              {publicGame.players.length > 3 && (
+                                <span className="more-players">+{publicGame.players.length - 3}</span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="empty-players">No players</span>
+                          )}
+                        </td>
+                        <td className="action-cell">
+                          <button 
+                            onClick={() => joinGameById(publicGame.gameId)}
+                            className="join-table-btn"
+                            disabled={!connected}
+                          >
+                            🚀 Join
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             ) : (
-              <p>No public games available.</p>
+              <div className="no-games-message">
+                <div className="no-games-icon">🎯</div>
+                <p>No public games available at the moment.</p>
+                <small>Create a public game to get started!</small>
+              </div>
             )}
           </div>
         </div>
