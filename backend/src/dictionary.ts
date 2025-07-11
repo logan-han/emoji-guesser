@@ -70,11 +70,11 @@ export function generateHint(word: string, timeElapsed: number, totalTime: numbe
   // Calculate how many letters should be revealed based on time elapsed
   let lettersToReveal = Math.floor(timeElapsed / revealInterval);
   
-  // Ensure we don't reveal all letters, leave some for guessing
-  const maxRevealCount = Math.max(1, Math.floor(wordLength * 0.7));
+  // Ensure we don't reveal all letters, leave the last one for guessing
+  const maxRevealCount = Math.max(0, wordLength - 1);
   lettersToReveal = Math.min(lettersToReveal, maxRevealCount);
 
-  if (timeElapsed >= totalTime - 10000 && lettersToReveal === 0) {
+  if (timeElapsed >= totalTime - 10000 && lettersToReveal === 0 && wordLength > 1) {
     lettersToReveal = 1; // Reveal at least one letter in the last 10 seconds
   }
   
@@ -84,46 +84,22 @@ export function generateHint(word: string, timeElapsed: number, totalTime: numbe
   }
   
   // Create a deterministic but random-looking order for revealing letters
-  // This ensures the same word always reveals letters in the same order
-  const letterPositions: { pos: number; priority: number }[] = [];
-  const vowels = new Set(['a', 'e', 'i', 'o', 'u']);
-  const seenLetters = new Set<string>();
+  const letterPositions = Array.from({ length: wordLength }, (_, i) => i);
   
-  // Create a simple hash from the word to ensure consistent ordering
+  // Shuffle the positions array consistently based on the word itself
   let wordHash = 0;
   for (let i = 0; i < normalizedWord.length; i++) {
     wordHash = (wordHash * 31 + normalizedWord.charCodeAt(i)) % 1000;
   }
   
-  // Assign priority to each position
-  for (let i = 0; i < wordLength; i++) {
-    const letter = normalizedWord[i];
-    let priority = 0;
-    
-    // Higher priority for vowels
-    if (vowels.has(letter)) priority += 3;
-    
-    // Higher priority for unique letters
-    if (!seenLetters.has(letter)) {
-      priority += 2;
-      seenLetters.add(letter);
-    }
-    
-    // Prefer letters not at the beginning or end for variety
-    if (i > 0 && i < wordLength - 1) priority += 1;
-    
-    // Add position-based variance using word hash for consistency
-    priority += ((wordHash + i * 7) % 10) / 10;
-    
-    letterPositions.push({ pos: i, priority });
+  for (let i = letterPositions.length - 1; i > 0; i--) {
+    const j = (wordHash + i) % (i + 1);
+    [letterPositions[i], letterPositions[j]] = [letterPositions[j], letterPositions[i]];
   }
-  
-  // Sort by priority (highest first) for consistent ordering
-  letterPositions.sort((a, b) => b.priority - a.priority);
   
   // Select positions to reveal based on count
   const positionsToReveal = new Set(
-    letterPositions.slice(0, lettersToReveal).map(item => item.pos)
+    letterPositions.slice(0, lettersToReveal)
   );
   
   // Build the hint string
