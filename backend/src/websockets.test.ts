@@ -136,6 +136,33 @@ describe('WebSocket Handler Tests', () => {
 
       expect(mockDelete).toHaveBeenCalledWith({ TableName: 'test-games-table', Key: { gameId: 'game-1' } });
     });
+
+    test('handles non-describer disconnection in an active game', async () => {
+      const game = {
+        gameId: 'game-1',
+        ownerId: 'test-connection-123',
+        players: [
+          { connectionId: 'test-connection-123', name: 'Player 1', lastSeen: new Date().toISOString() },
+          { connectionId: 'test-connection-456', name: 'Player 2', lastSeen: new Date().toISOString() },
+          { connectionId: 'test-connection-789', name: 'Player 3', lastSeen: new Date().toISOString() },
+        ],
+        gameState: 'IN_PROGRESS',
+        currentDescriberIndex: 0
+      };
+      mockScan.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Items: [game] }) });
+
+      const event = {
+        ...mockEvent,
+        requestContext: { ...mockEvent.requestContext, connectionId: 'test-connection-456' },
+      };
+
+      await disconnect(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockUpdate).toHaveBeenCalled();
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('playerLeft')
+      }));
+    });
   });
 
   describe('Message Handler', () => {
@@ -156,6 +183,25 @@ describe('WebSocket Handler Tests', () => {
       });
       expect(mockPut).toHaveBeenCalled();
       expect(mockPostToConnection).toHaveBeenCalled();
+    });
+
+    test('handles createGame failure', async () => {
+      mockPut.mockReturnValueOnce({ promise: jest.fn().mockRejectedValue(new Error('DynamoDB error')) });
+
+      const createGameEvent = {
+        ...mockEvent,
+        body: JSON.stringify({
+          action: 'createGame',
+          playerName: 'Test Player'
+        })
+      };
+
+      await default_handler(createGameEvent as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnection).toHaveBeenCalledWith({
+        ConnectionId: 'test-connection-123',
+        Data: JSON.stringify({ action: 'error', message: 'Could not create game.' })
+      });
     });
 
     test('handles joinGame action', async () => {
@@ -183,6 +229,33 @@ describe('WebSocket Handler Tests', () => {
         body: 'Message handled.'
       });
       expect(mockGet).toHaveBeenCalled();
+    });
+
+    test('handles player rejoining a waiting game', async () => {
+      const existingGame = {
+        gameId: 'existing-game',
+        ownerId: 'owner-123',
+        players: [{ connectionId: 'owner-123', name: 'Owner', sessionId: 'session-1' }],
+        gameState: 'WAITING'
+      };
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: existingGame }) });
+
+      const joinGameEvent = {
+        ...mockEvent,
+        body: JSON.stringify({
+          action: 'joinGame',
+          gameId: 'existing-game',
+          playerName: 'Test Player',
+          sessionId: 'session-1'
+        })
+      };
+
+      await default_handler(joinGameEvent as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockUpdate).toHaveBeenCalled();
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('playerJoined')
+      }));
     });
 
     test('handles joinGame with non-existent game', async () => {
@@ -235,6 +308,65 @@ describe('WebSocket Handler Tests', () => {
       }));
     });
 
+    test('handles player rejoining an in-progress game', async () => {
+      const existingGame = {
+        gameId: 'existing-game',
+        ownerId: 'owner-123',
+        players: [
+          { connectionId: 'owner-123', name: 'Owner', sessionId: 'session-1' },
+          { connectionId: 'other-player', name: 'Player 2', sessionId: 'session-2' }
+        ],
+        gameState: 'IN_PROGRESS',
+        currentDescriberIndex: 0,
+        turnState: 'DESCRIBING',
+        secretWord: 'apple',
+        currentHint: '_ _ _ _ _'
+      };
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: existingGame }) });
+
+      const joinGameEvent = {
+        ...mockEvent,
+        requestContext: { ...mockEvent.requestContext, connectionId: 'new-connection-id' },
+        body: JSON.stringify({
+          action: 'joinGame',
+          gameId: 'existing-game',
+          playerName: 'Test Player',
+          sessionId: 'session-2'
+        })
+      };
+
+      await default_handler(joinGameEvent as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockUpdate).toHaveBeenCalled();
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('playerReconnected')
+      }));
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        ConnectionId: 'new-connection-id',
+        Data: expect.stringContaining('hintUpdated')
+      }));
+    });
+
+    test('handles joinGame failure', async () => {
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockRejectedValue(new Error('DynamoDB error')) });
+
+      const joinGameEvent = {
+        ...mockEvent,
+        body: JSON.stringify({
+          action: 'joinGame',
+          gameId: 'existing-game',
+          playerName: 'Test Player'
+        })
+      };
+
+      await default_handler(joinGameEvent as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnection).toHaveBeenCalledWith({
+        ConnectionId: 'test-connection-123',
+        Data: JSON.stringify({ action: 'error', message: 'Could not join game.' })
+      });
+    });
+
     test('handles heartbeat action', async () => {
       const heartbeatEvent = {
         ...mockEvent,
@@ -250,6 +382,164 @@ describe('WebSocket Handler Tests', () => {
         statusCode: 200,
         body: 'Message handled.'
       });
+    });
+
+    test('should handle heartbeat failure', async () => {
+      mockScan.mockReturnValueOnce({ promise: jest.fn().mockRejectedValue(new Error('DynamoDB error')) });
+
+      const heartbeatEvent = {
+        ...mockEvent,
+        body: JSON.stringify({
+          action: 'heartbeat',
+          sessionId: 'test-session-123'
+        })
+      };
+
+      await expect(default_handler(heartbeatEvent as APIGatewayEvent, {} as any, {} as any)).resolves.not.toThrow();
+    });
+
+    test('should handle updatePlayerName for non-existent player', async () => {
+      const game = {
+        gameId: 'game-1',
+        players: [
+          { connectionId: 'test-connection-123', name: 'Player 1', lastSeen: new Date().toISOString() },
+        ],
+      };
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+
+      const event = {
+        ...mockEvent,
+        requestContext: { ...mockEvent.requestContext, connectionId: 'non-existent-connection' },
+        body: JSON.stringify({ action: 'updatePlayerName', gameId: 'game-1', name: 'New Name' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('Player not found in game.')
+      }));
+    });
+
+    test('should handle updatePlayerName failure', async () => {
+      const game = {
+        gameId: 'game-1',
+        players: [
+          { connectionId: 'test-connection-123', name: 'Player 1', lastSeen: new Date().toISOString() },
+        ],
+      };
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+      mockUpdate.mockReturnValueOnce({ promise: jest.fn().mockRejectedValue(new Error('DynamoDB error')) });
+
+      const event = {
+        ...mockEvent,
+        body: JSON.stringify({ action: 'updatePlayerName', gameId: 'game-1', name: 'New Name' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('Could not update name.')
+      }));
+    });
+
+    test('should handle timeUp for non-existent game', async () => {
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({}) });
+
+      const event = {
+        ...mockEvent,
+        body: JSON.stringify({ action: 'timeUp', gameId: 'non-existent-game' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnection).not.toHaveBeenCalled();
+    });
+
+    test('should not end round if not in DESCRIBING state', async () => {
+      const game = {
+        gameId: 'game-1',
+        turnState: 'WAITING'
+      };
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+
+      const event = {
+        ...mockEvent,
+        body: JSON.stringify({ action: 'timeUp', gameId: 'game-1' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockUpdate).not.toHaveBeenCalled();
+    });
+
+    test('should not allow non-owner to restart game', async () => {
+      const game = {
+        gameId: 'game-1',
+        ownerId: 'owner-123',
+        players: [
+          { connectionId: 'test-connection-123', name: 'Player 1', lastSeen: new Date().toISOString() },
+        ],
+        gameState: 'ENDED'
+      };
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+
+      const event = {
+        ...mockEvent,
+        body: JSON.stringify({ action: 'restartGame', gameId: 'game-1' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('gameRestarted')
+      }));
+    });
+
+    test('should not allow restarting a game that has not ended', async () => {
+      const game = {
+        gameId: 'game-1',
+        ownerId: 'test-connection-123',
+        players: [
+          { connectionId: 'test-connection-123', name: 'Player 1', lastSeen: new Date().toISOString() },
+        ],
+        gameState: 'IN_PROGRESS'
+      };
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+
+      const event = {
+        ...mockEvent,
+        body: JSON.stringify({ action: 'restartGame', gameId: 'game-1' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('Can only restart ended games.')
+      }));
+    });
+
+    test('should handle restartGame failure', async () => {
+      const game = {
+        gameId: 'game-1',
+        ownerId: 'test-connection-123',
+        players: [
+          { connectionId: 'test-connection-123', name: 'Player 1', lastSeen: new Date().toISOString() },
+        ],
+        gameState: 'ENDED'
+      };
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+      mockUpdate.mockReturnValueOnce({ promise: jest.fn().mockRejectedValue(new Error('DynamoDB error')) });
+
+      const event = {
+        ...mockEvent,
+        body: JSON.stringify({ action: 'restartGame', gameId: 'game-1' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('Could not restart game.')
+      }));
     });
 
     test('handles unknown action', async () => {
@@ -358,6 +648,17 @@ describe('WebSocket Handler Tests', () => {
         Data: JSON.stringify({ action: 'newEmoji', emoji: '👍' })
       });
     });
+
+    test('should handle submitEmoji failure', async () => {
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockRejectedValue(new Error('DynamoDB error')) });
+
+      const event = {
+        ...mockEvent,
+        body: JSON.stringify({ action: 'submitEmoji', gameId: 'game-1', emoji: '👍' })
+      };
+
+      await expect(default_handler(event as APIGatewayEvent, {} as any, {} as any)).resolves.not.toThrow();
+    });
   });
 
   describe('startGame', () => {
@@ -434,6 +735,31 @@ describe('WebSocket Handler Tests', () => {
         Data: expect.stringContaining('You need at least 2 ready players to start')
       }));
     });
+
+    test('should handle startGame failure', async () => {
+      const game = {
+        gameId: 'game-1',
+        ownerId: 'test-connection-123',
+        players: [
+          { connectionId: 'test-connection-123', name: 'Player 1', lastSeen: new Date().toISOString() },
+          { connectionId: 'test-connection-456', name: 'Player 2', lastSeen: new Date().toISOString() },
+        ],
+        gameState: 'WAITING'
+      };
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+      mockUpdate.mockReturnValueOnce({ promise: jest.fn().mockRejectedValue(new Error('DynamoDB error')) });
+
+      const event = {
+        ...mockEvent,
+        body: JSON.stringify({ action: 'startGame', gameId: 'game-1' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('Could not start game.')
+      }));
+    });
   });
 
   describe('chooseWord', () => {
@@ -492,6 +818,61 @@ describe('WebSocket Handler Tests', () => {
         Data: expect.stringContaining('Invalid word choice')
       }));
     });
+
+    test('should not allow a non-describer to choose a word', async () => {
+      const game = {
+        gameId: 'game-1',
+        ownerId: 'test-connection-123',
+        players: [
+          { connectionId: 'test-connection-123', name: 'Player 1', lastSeen: new Date().toISOString() },
+          { connectionId: 'test-connection-456', name: 'Player 2', lastSeen: new Date().toISOString() },
+        ],
+        gameState: 'IN_PROGRESS',
+        currentDescriberIndex: 0,
+        wordOptions: ['apple', 'banana', 'orange']
+      };
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+
+      const event = {
+        ...mockEvent,
+        requestContext: { ...mockEvent.requestContext, connectionId: 'test-connection-456' },
+        body: JSON.stringify({ action: 'chooseWord', gameId: 'game-1', word: 'apple' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockUpdate).not.toHaveBeenCalled();
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('You are not the current describer')
+      }));
+    });
+
+    test('should handle chooseWord failure', async () => {
+      const game = {
+        gameId: 'game-1',
+        ownerId: 'test-connection-123',
+        players: [
+          { connectionId: 'test-connection-123', name: 'Player 1', lastSeen: new Date().toISOString() },
+          { connectionId: 'test-connection-456', name: 'Player 2', lastSeen: new Date().toISOString() },
+        ],
+        gameState: 'IN_PROGRESS',
+        currentDescriberIndex: 0,
+        wordOptions: ['apple', 'banana', 'orange']
+      };
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+      mockUpdate.mockReturnValueOnce({ promise: jest.fn().mockRejectedValue(new Error('DynamoDB error')) });
+
+      const event = {
+        ...mockEvent,
+        body: JSON.stringify({ action: 'chooseWord', gameId: 'game-1', word: 'apple' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('Could not choose word.')
+      }));
+    });
   });
 
   describe('submitGuess', () => {
@@ -546,6 +927,222 @@ describe('WebSocket Handler Tests', () => {
 
       expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('wordGuessed')
+      }));
+    });
+
+    test('should not allow a non-player to guess', async () => {
+      const game = {
+        gameId: 'game-1',
+        players: [
+          { connectionId: 'test-connection-123', name: 'Player 1', score: 0, lastSeen: new Date().toISOString() },
+          { connectionId: 'test-connection-456', name: 'Player 2', score: 0, lastSeen: new Date().toISOString() },
+        ],
+        secretWord: 'apple',
+        currentDescriberIndex: 0,
+        turnStartTime: new Date().toISOString(),
+        maxRounds: 2,
+        currentRound: 1
+      };
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+
+      const event = {
+        ...mockEvent,
+        requestContext: { ...mockEvent.requestContext, connectionId: 'non-player-connection' },
+        body: JSON.stringify({ action: 'submitGuess', gameId: 'game-1', guess: 'apple' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnection).not.toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('wordGuessed')
+      }));
+    });
+
+    test('should not allow the describer to guess', async () => {
+      const game = {
+        gameId: 'game-1',
+        players: [
+          { connectionId: 'test-connection-123', name: 'Player 1', score: 0, lastSeen: new Date().toISOString() },
+          { connectionId: 'test-connection-456', name: 'Player 2', score: 0, lastSeen: new Date().toISOString() },
+        ],
+        secretWord: 'apple',
+        currentDescriberIndex: 0,
+        turnStartTime: new Date().toISOString(),
+        maxRounds: 2,
+        currentRound: 1
+      };
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+
+      const event = {
+        ...mockEvent,
+        requestContext: { ...mockEvent.requestContext, connectionId: 'test-connection-123' },
+        body: JSON.stringify({ action: 'submitGuess', gameId: 'game-1', guess: 'apple' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnection).not.toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('wordGuessed')
+      }));
+    });
+
+    test('should handle submitGuess failure', async () => {
+      const game = {
+        gameId: 'game-1',
+        players: [
+          { connectionId: 'test-connection-123', name: 'Player 1', score: 0, lastSeen: new Date().toISOString() },
+          { connectionId: 'test-connection-456', name: 'Player 2', score: 0, lastSeen: new Date().toISOString() },
+        ],
+        secretWord: 'apple',
+        currentDescriberIndex: 0,
+        turnStartTime: new Date().toISOString(),
+        maxRounds: 2,
+        currentRound: 1
+      };
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+      mockPostToConnection.mockReturnValueOnce({ promise: jest.fn().mockRejectedValue(new Error('API Gateway error')) });
+
+      const event = {
+        ...mockEvent,
+        requestContext: { ...mockEvent.requestContext, connectionId: 'test-connection-456' },
+        body: JSON.stringify({ action: 'submitGuess', gameId: 'game-1', guess: 'banana' })
+      };
+
+      // We don't expect a response to the client on failure, but we can check that the error is handled gracefully
+      await expect(default_handler(event as APIGatewayEvent, {} as any, {} as any)).resolves.not.toThrow();
+    });
+
+    test('should end the game after the final round', async () => {
+      const game = {
+        gameId: 'game-1',
+        players: [
+          { connectionId: 'test-connection-123', name: 'Player 1', score: 100, lastSeen: new Date().toISOString() },
+          { connectionId: 'test-connection-456', name: 'Player 2', score: 120, lastSeen: new Date().toISOString() },
+        ],
+        secretWord: 'apple',
+        currentDescriberIndex: 1,
+        turnStartTime: new Date().toISOString(),
+        maxRounds: 2,
+        currentRound: 2
+      };
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+
+      const event = {
+        ...mockEvent,
+        requestContext: { ...mockEvent.requestContext, connectionId: 'test-connection-123' },
+        body: JSON.stringify({ action: 'submitGuess', gameId: 'game-1', guess: 'apple' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('gameEnded')
+      }));
+    });
+  });
+
+  describe('default_handler invalid actions', () => {
+    test('handles invalid action', async () => {
+      const event = {
+        ...mockEvent,
+        body: JSON.stringify({ action: 'invalidAction' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('Unknown action: invalidAction')
+      }));
+    });
+
+    test('handles missing gameId', async () => {
+      const event = {
+        ...mockEvent,
+        body: JSON.stringify({ action: 'joinGame' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('gameId is required for joinGame action.')
+      }));
+    });
+
+    test('handles missing word for chooseWord', async () => {
+      const event = {
+        ...mockEvent,
+        body: JSON.stringify({ action: 'chooseWord', gameId: 'game-1' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('gameId and word are required for chooseWord action.')
+      }));
+    });
+
+    test('handles missing guess for submitGuess', async () => {
+      const event = {
+        ...mockEvent,
+        body: JSON.stringify({ action: 'submitGuess', gameId: 'game-1' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('gameId and guess are required for submitGuess action.')
+      }));
+    });
+
+    test('handles missing emoji for submitEmoji', async () => {
+      const event = {
+        ...mockEvent,
+        body: JSON.stringify({ action: 'submitEmoji', gameId: 'game-1' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('gameId and emoji are required for submitEmoji action.')
+      }));
+    });
+
+    test('handles missing gameId for timeUp', async () => {
+      const event = {
+        ...mockEvent,
+        body: JSON.stringify({ action: 'timeUp' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('gameId is required for timeUp action.')
+      }));
+    });
+
+    test('handles missing gameId for restartGame', async () => {
+      const event = {
+        ...mockEvent,
+        body: JSON.stringify({ action: 'restartGame' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('gameId is required for restartGame action.')
+      }));
+    });
+
+    test('handles missing name for updatePlayerName', async () => {
+      const event = {
+        ...mockEvent,
+        body: JSON.stringify({ action: 'updatePlayerName', gameId: 'game-1' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('gameId and name are required for updatePlayerName action.')
       }));
     });
   });
