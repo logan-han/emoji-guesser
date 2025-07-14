@@ -381,4 +381,40 @@ describe('App Component', () => {
       expect(screen.getByText('Create New Game')).toBeInTheDocument();
     });
   });
+
+  test('can select public or private game', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const privateRadio = screen.getByLabelText('Private Game');
+    const publicRadio = screen.getByLabelText('Public Game');
+
+    expect(privateRadio).toBeChecked();
+    expect(publicRadio).not.toBeChecked();
+
+    fireEvent.click(publicRadio);
+
+    expect(publicRadio).toBeChecked();
+    expect(privateRadio).not.toBeChecked();
+  });
+
+  test('displays and copies the invite link', async () => {
+    Object.assign(navigator, { clipboard: { writeText: jest.fn().mockResolvedValue(undefined) } });
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+    act(() => {
+      websocket.onmessage({ data: JSON.stringify({ action: 'gameCreated', game: { gameId: 'GAME123', gameState: 'WAITING', players: [{ name: 'TestPlayer', connectionId: 'test-conn', score: 0 }], ownerId: 'test-conn' } }) });
+    });
+
+    await waitFor(() => expect(screen.getByText('Invite Link:')).toBeInTheDocument());
+
+    const copyButton = screen.getByText('📋 Copy');
+    fireEvent.click(copyButton);
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith('http://localhost/?gameId=GAME123');
+    await waitFor(() => expect(screen.getByText('✅ Copied!')).toBeInTheDocument());
+  });
 });

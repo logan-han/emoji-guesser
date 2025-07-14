@@ -410,6 +410,30 @@ describe('WebSocket Handler Tests', () => {
         Data: expect.stringContaining('Only the owner can start the game')
       }));
     });
+
+    test('should not start the game with fewer than 2 players', async () => {
+      const game = {
+        gameId: 'game-1',
+        ownerId: 'test-connection-123',
+        players: [
+          { connectionId: 'test-connection-123', name: 'Player 1', lastSeen: new Date().toISOString() },
+        ],
+        gameState: 'WAITING'
+      };
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+
+      const event = {
+        ...mockEvent,
+        body: JSON.stringify({ action: 'startGame', gameId: 'game-1' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockUpdate).not.toHaveBeenCalled();
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('You need at least 2 ready players to start')
+      }));
+    });
   });
 
   describe('chooseWord', () => {
@@ -441,6 +465,33 @@ describe('WebSocket Handler Tests', () => {
         Data: expect.stringContaining('describeWord')
       }));
     });
+
+    test('should not allow the describer to choose an invalid word', async () => {
+      const game = {
+        gameId: 'game-1',
+        ownerId: 'test-connection-123',
+        players: [
+          { connectionId: 'test-connection-123', name: 'Player 1', lastSeen: new Date().toISOString() },
+          { connectionId: 'test-connection-456', name: 'Player 2', lastSeen: new Date().toISOString() },
+        ],
+        gameState: 'IN_PROGRESS',
+        currentDescriberIndex: 0,
+        wordOptions: ['apple', 'banana', 'orange']
+      };
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+
+      const event = {
+        ...mockEvent,
+        body: JSON.stringify({ action: 'chooseWord', gameId: 'game-1', word: 'grape' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockUpdate).not.toHaveBeenCalled();
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('Invalid word choice')
+      }));
+    });
   });
 
   describe('submitGuess', () => {
@@ -467,6 +518,34 @@ describe('WebSocket Handler Tests', () => {
 
       expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('newGuess')
+      }));
+    });
+
+    test('should handle correct guesses', async () => {
+      const game = {
+        gameId: 'game-1',
+        players: [
+          { connectionId: 'test-connection-123', name: 'Player 1', score: 0, lastSeen: new Date().toISOString() },
+          { connectionId: 'test-connection-456', name: 'Player 2', score: 0, lastSeen: new Date().toISOString() },
+        ],
+        secretWord: 'apple',
+        currentDescriberIndex: 0,
+        turnStartTime: new Date().toISOString(),
+        maxRounds: 2,
+        currentRound: 1
+      };
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+
+      const event = {
+        ...mockEvent,
+        requestContext: { ...mockEvent.requestContext, connectionId: 'test-connection-456' },
+        body: JSON.stringify({ action: 'submitGuess', gameId: 'game-1', guess: 'apple' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('wordGuessed')
       }));
     });
   });
