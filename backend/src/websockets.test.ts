@@ -121,6 +121,21 @@ describe('WebSocket Handler Tests', () => {
         Data: expect.stringContaining('playerLeft')
       }));
     });
+
+    test('deletes the game if the last player disconnects', async () => {
+      const game = {
+        gameId: 'game-1',
+        ownerId: 'test-connection-123',
+        players: [
+          { connectionId: 'test-connection-123', name: 'Player 1', lastSeen: new Date().toISOString() },
+        ],
+      };
+      mockScan.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Items: [game] }) });
+
+      await disconnect(mockEvent as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockDelete).toHaveBeenCalledWith({ TableName: 'test-games-table', Key: { gameId: 'game-1' } });
+    });
   });
 
   describe('Message Handler', () => {
@@ -192,6 +207,32 @@ describe('WebSocket Handler Tests', () => {
         ConnectionId: 'test-connection-123',
         Data: JSON.stringify({ action: 'error', message: 'Game not found.' })
       });
+    });
+
+    test('should not allow a player to join a game in progress', async () => {
+      const existingGame = {
+        gameId: 'existing-game',
+        ownerId: 'owner-123',
+        players: [{ connectionId: 'owner-123', name: 'Owner', lastSeen: new Date().toISOString() }],
+        gameState: 'IN_PROGRESS'
+      };
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: existingGame }) });
+
+      const joinGameEvent = {
+        ...mockEvent,
+        body: JSON.stringify({
+          action: 'joinGame',
+          gameId: 'existing-game',
+          playerName: 'Test Player'
+        })
+      };
+
+      await default_handler(joinGameEvent as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockUpdate).toHaveBeenCalled();
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('spectatorJoined')
+      }));
     });
 
     test('handles heartbeat action', async () => {
@@ -342,6 +383,31 @@ describe('WebSocket Handler Tests', () => {
       expect(mockUpdate).toHaveBeenCalled();
       expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('gameStarted')
+      }));
+    });
+
+    test('should not start the game if a non-owner requests it', async () => {
+      const game = {
+        gameId: 'game-1',
+        ownerId: 'another-player',
+        players: [
+          { connectionId: 'test-connection-123', name: 'Player 1', lastSeen: new Date().toISOString() },
+          { connectionId: 'test-connection-456', name: 'Player 2', lastSeen: new Date().toISOString() },
+        ],
+        gameState: 'WAITING'
+      };
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+
+      const event = {
+        ...mockEvent,
+        body: JSON.stringify({ action: 'startGame', gameId: 'game-1' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockUpdate).not.toHaveBeenCalled();
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('Only the owner can start the game')
       }));
     });
   });

@@ -345,4 +345,40 @@ describe('App Component', () => {
     expect(screen.getByText('TestPlayer')).toBeInTheDocument();
     expect(screen.getByText('100')).toBeInTheDocument();
   });
+
+  test('allows the owner to play again', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+    act(() => {
+      websocket.onmessage({ data: JSON.stringify({ action: 'gameEnded', game: { gameId: 'GAME123', gameState: 'ENDED', players: [{ name: 'TestPlayer', connectionId: 'test-conn', score: 100, wantsToPlayAgain: false }], ownerId: 'test-conn' } }) });
+    });
+
+    await waitFor(() => expect(screen.getByText('Final Scores:')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText(/Play Again|Rejoin Game/));
+
+    await waitFor(() => {
+      expect(mockSend).toHaveBeenCalledWith(expect.stringContaining('restartGame'));
+    });
+  });
+
+  test('allows the user to go back to the lobby', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+    act(() => {
+      websocket.onmessage({ data: JSON.stringify({ action: 'gameEnded', game: { gameId: 'GAME123', gameState: 'ENDED', players: [{ name: 'TestPlayer', connectionId: 'test-conn', score: 100, wantsToPlayAgain: false }], ownerId: 'test-conn' } }) });
+    });
+
+    await waitFor(() => expect(screen.getByText('Final Scores:')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText('Back to Lobby'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Create New Game')).toBeInTheDocument();
+    });
+  });
 });
