@@ -257,4 +257,92 @@ describe('App Component', () => {
       );
     });
   });
+
+  test('allows player to change their name', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'gameCreated',
+          game: {
+            gameId: 'GAME123',
+            gameState: 'WAITING',
+            players: [{ name: 'TestPlayer', connectionId: 'test-conn', score: 0 }],
+            ownerId: 'test-conn'
+          }
+        })
+      });
+    });
+
+    await waitFor(() => expect(screen.getByText('TestPlayer')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText('(click to edit)'));
+
+    const input = screen.getByPlaceholderText('Enter your name (required)');
+    fireEvent.change(input, { target: { value: 'NewName' } });
+    fireEvent.blur(input);
+
+    await waitFor(() => {
+      expect(mockSend).toHaveBeenCalledWith(expect.stringContaining('updatePlayerName'));
+      expect(mockSend).toHaveBeenCalledWith(expect.stringContaining('NewName'));
+    });
+  });
+
+  test('describer can choose a word', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+    act(() => {
+      websocket.onmessage({ data: JSON.stringify({ action: 'gameStarted', game: { gameId: 'GAME123', gameState: 'IN_PROGRESS', players: [{ name: 'TestPlayer', connectionId: 'test-conn', score: 0 }], ownerId: 'test-conn', currentRound: 1 } }) });
+      websocket.onmessage({ data: JSON.stringify({ action: 'chooseWord', wordOptions: ['cat', 'dog', 'bird'] }) });
+    });
+
+    await waitFor(() => expect(screen.getByText(/Choose a Word to Describe/)).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText('cat'));
+
+    await waitFor(() => {
+      expect(mockSend).toHaveBeenCalledWith(expect.stringContaining('chooseWord'));
+      expect(mockSend).toHaveBeenCalledWith(expect.stringContaining('cat'));
+    });
+  });
+
+  test('guesser can submit a guess', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+    act(() => {
+      websocket.onmessage({ data: JSON.stringify({ action: 'gameStarted', game: { gameId: 'GAME123', gameState: 'IN_PROGRESS', players: [{ name: 'TestPlayer', connectionId: 'other-conn', score: 0 }, { name: 'Me', connectionId: 'test-conn', score: 0 }], ownerId: 'other-conn', currentDescriberIndex: 0, turnState: 'DESCRIBING', currentHint: '_ _ _' } }) });
+    });
+
+    await waitFor(() => expect(screen.getByPlaceholderText('Type your guess...')).toBeInTheDocument());
+
+    const guessInput = screen.getByPlaceholderText('Type your guess...');
+    fireEvent.change(guessInput, { target: { value: 'dog' } });
+    fireEvent.click(screen.getByText('Guess'));
+
+    await waitFor(() => {
+      expect(mockSend).toHaveBeenCalledWith(expect.stringContaining('submitGuess'));
+      expect(mockSend).toHaveBeenCalledWith(expect.stringContaining('dog'));
+    });
+  });
+
+  test('displays final scores when game ends', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+    act(() => {
+      websocket.onmessage({ data: JSON.stringify({ action: 'gameEnded', game: { gameId: 'GAME123', gameState: 'ENDED', players: [{ name: 'TestPlayer', connectionId: 'test-conn', score: 100 }] } }) });
+    });
+
+    await waitFor(() => expect(screen.getByText('Final Scores:')).toBeInTheDocument());
+    expect(screen.getByText('TestPlayer')).toBeInTheDocument();
+    expect(screen.getByText('100')).toBeInTheDocument();
+  });
 });

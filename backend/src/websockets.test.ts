@@ -36,7 +36,9 @@ jest.mock('aws-sdk', () => ({
 }));
 
 import { APIGatewayEvent } from 'aws-lambda';
-import { connect, disconnect, default_handler } from './websockets';
+import { connect, disconnect, default_handler, listPublicGames } from './websockets';
+
+jest.useFakeTimers();
 
 describe('WebSocket Handler Tests', () => {
   const mockEvent: Partial<APIGatewayEvent> = {
@@ -96,6 +98,28 @@ describe('WebSocket Handler Tests', () => {
           ':o': 'test-connection-456'
         }
       });
+    });
+
+    test('handles describer disconnection in an active game', async () => {
+      const game = {
+        gameId: 'game-1',
+        ownerId: 'test-connection-123',
+        players: [
+          { connectionId: 'test-connection-123', name: 'Player 1', lastSeen: new Date().toISOString() },
+          { connectionId: 'test-connection-456', name: 'Player 2', lastSeen: new Date().toISOString() },
+          { connectionId: 'test-connection-789', name: 'Player 3', lastSeen: new Date().toISOString() },
+        ],
+        gameState: 'IN_PROGRESS',
+        currentDescriberIndex: 0
+      };
+      mockScan.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Items: [game] }) });
+
+      await disconnect(mockEvent as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockUpdate).toHaveBeenCalled();
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('playerLeft')
+      }));
     });
   });
 
@@ -225,6 +249,159 @@ describe('WebSocket Handler Tests', () => {
         statusCode: 400,
         body: 'Invalid request'
       });
+    });
+  });
+
+  describe('listPublicGames Handler', () => {
+    test('should return a list of public games', async () => {
+      const games = [
+        { gameId: 'game-1', isPublic: true, gameState: 'WAITING' },
+        { gameId: 'game-2', isPublic: true, gameState: 'WAITING' },
+      ];
+      mockScan.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Items: games }) });
+
+      const result = await listPublicGames(mockEvent as APIGatewayEvent, {} as any, {} as any) as { statusCode: number, body: string };
+
+      expect(result.statusCode).toBe(200);
+      expect(JSON.parse(result.body)).toEqual(games);
+      expect(mockScan).toHaveBeenCalledWith({
+        TableName: 'test-games-table',
+        FilterExpression: 'isPublic = :true and gameState = :waiting',
+        ExpressionAttributeValues: {
+          ':true': true,
+          ':waiting': 'WAITING',
+        },
+      });
+    });
+
+    test('should handle errors when listing public games', async () => {
+      mockScan.mockReturnValueOnce({ promise: jest.fn().mockRejectedValue(new Error('DynamoDB error')) });
+
+      const result = await listPublicGames(mockEvent as APIGatewayEvent, {} as any, {} as any) as { statusCode: number, body: string };
+
+      expect(result.statusCode).toBe(500);
+      expect(JSON.parse(result.body)).toEqual({ message: 'Could not list public games.' });
+    });
+  });
+
+  describe('submitEmoji', () => {
+    test('should broadcast emoji to all players', async () => {
+      const game = {
+        gameId: 'game-1',
+        players: [
+          { connectionId: 'test-connection-123', name: 'Player 1' },
+          { connectionId: 'test-connection-456', name: 'Player 2' },
+        ],
+        spectators: [{ connectionId: 'spectator-1' }]
+      };
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+
+      const event = {
+        ...mockEvent,
+        body: JSON.stringify({ action: 'submitEmoji', gameId: 'game-1', emoji: '👍' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnection).toHaveBeenCalledTimes(3);
+      expect(mockPostToConnection).toHaveBeenCalledWith({
+        ConnectionId: 'test-connection-123',
+        Data: JSON.stringify({ action: 'newEmoji', emoji: '👍' })
+      });
+      expect(mockPostToConnection).toHaveBeenCalledWith({
+        ConnectionId: 'test-connection-456',
+        Data: JSON.stringify({ action: 'newEmoji', emoji: '👍' })
+      });
+      expect(mockPostToConnection).toHaveBeenCalledWith({
+        ConnectionId: 'spectator-1',
+        Data: JSON.stringify({ action: 'newEmoji', emoji: '👍' })
+      });
+    });
+  });
+
+  describe('startGame', () => {
+    test('should start the game if the owner requests it', async () => {
+      const game = {
+        gameId: 'game-1',
+        ownerId: 'test-connection-123',
+        players: [
+          { connectionId: 'test-connection-123', name: 'Player 1', lastSeen: new Date().toISOString() },
+          { connectionId: 'test-connection-456', name: 'Player 2', lastSeen: new Date().toISOString() },
+        ],
+        gameState: 'WAITING'
+      };
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+
+      const event = {
+        ...mockEvent,
+        body: JSON.stringify({ action: 'startGame', gameId: 'game-1' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockUpdate).toHaveBeenCalled();
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('gameStarted')
+      }));
+    });
+  });
+
+  describe('chooseWord', () => {
+    test('should allow the describer to choose a word', async () => {
+      const game = {
+        gameId: 'game-1',
+        ownerId: 'test-connection-123',
+        players: [
+          { connectionId: 'test-connection-123', name: 'Player 1', lastSeen: new Date().toISOString() },
+          { connectionId: 'test-connection-456', name: 'Player 2', lastSeen: new Date().toISOString() },
+        ],
+        gameState: 'IN_PROGRESS',
+        currentDescriberIndex: 0,
+        wordOptions: ['apple', 'banana', 'orange']
+      };
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+
+      const event = {
+        ...mockEvent,
+        body: JSON.stringify({ action: 'chooseWord', gameId: 'game-1', word: 'apple' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({
+        ExpressionAttributeValues: expect.objectContaining({ ':w': 'apple' })
+      }));
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('describeWord')
+      }));
+    });
+  });
+
+  describe('submitGuess', () => {
+    test('should handle incorrect guesses', async () => {
+      const game = {
+        gameId: 'game-1',
+        players: [
+          { connectionId: 'test-connection-123', name: 'Player 1', lastSeen: new Date().toISOString() },
+          { connectionId: 'test-connection-456', name: 'Player 2', lastSeen: new Date().toISOString() },
+        ],
+        secretWord: 'apple',
+        currentDescriberIndex: 0,
+        turnStartTime: new Date().toISOString()
+      };
+      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+
+      const event = {
+        ...mockEvent,
+        requestContext: { ...mockEvent.requestContext, connectionId: 'test-connection-456' },
+        body: JSON.stringify({ action: 'submitGuess', gameId: 'game-1', guess: 'banana' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('newGuess')
+      }));
     });
   });
 });
