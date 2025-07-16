@@ -163,6 +163,31 @@ describe('WebSocket Handler Tests', () => {
         Data: expect.stringContaining('playerLeft')
       }));
     });
+
+    test('ends the game if a player disconnects and there are not enough players', async () => {
+        const game = {
+          gameId: 'game-1',
+          ownerId: 'test-connection-123',
+          players: [
+            { connectionId: 'test-connection-123', name: 'Player 1', lastSeen: new Date().toISOString() },
+            { connectionId: 'test-connection-456', name: 'Player 2', lastSeen: new Date().toISOString() },
+          ],
+          gameState: 'IN_PROGRESS',
+          currentDescriberIndex: 0
+        };
+        mockScan.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Items: [game] }) });
+  
+        await disconnect(mockEvent as APIGatewayEvent, {} as any, {} as any);
+  
+        expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({
+          ExpressionAttributeValues: expect.objectContaining({
+            ':s': 'ENDED'
+          })
+        }));
+        expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+          Data: expect.stringContaining('gameEnded')
+        }));
+      });
   });
 
   describe('Message Handler', () => {
@@ -1146,4 +1171,79 @@ describe('WebSocket Handler Tests', () => {
       }));
     });
   });
+
+  describe('Coverage Specific Tests', () => {
+    test('should handle stale connection on sendMessageToClient', async () => {
+        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+        mockPostToConnection.mockReturnValueOnce({ promise: jest.fn().mockRejectedValue({ statusCode: 410 }) });
+  
+        const event = {
+          ...mockEvent,
+          body: JSON.stringify({ action: 'createGame', playerName: 'Test Player' })
+        };
+  
+        await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+  
+        // No error should be thrown, and console.error should not be called for 410 errors
+        expect(consoleErrorSpy).not.toHaveBeenCalled();
+        consoleErrorSpy.mockRestore();
+      });
+
+      test('should cleanup stale players and reassign owner', async () => {
+        const now = new Date().getTime();
+        const staleTime = 3 * 60 * 1000; // 3 minutes ago
+        const game = {
+          gameId: 'game-1',
+          ownerId: 'stale-player',
+          players: [
+            { connectionId: 'stale-player', name: 'Stale Player', lastSeen: new Date(now - staleTime).toISOString() },
+            { connectionId: 'active-player', name: 'Active Player', lastSeen: new Date().toISOString() },
+          ],
+          gameState: 'WAITING'
+        };
+        mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+  
+        const event = {
+          ...mockEvent,
+          body: JSON.stringify({ action: 'startGame', gameId: 'game-1' })
+        };
+  
+        await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+  
+        expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({
+          ExpressionAttributeValues: expect.objectContaining({
+            ':p': expect.arrayContaining([expect.objectContaining({ connectionId: 'active-player' })]),
+            ':o': 'active-player'
+          })
+        }));
+      });
+
+      test('should update hint and handle premature timeUp', async () => {
+        const game = {
+            gameId: 'game-1',
+            players: [
+              { connectionId: 'test-connection-123', name: 'Player 1' },
+              { connectionId: 'test-connection-456', name: 'Player 2' },
+            ],
+            gameState: 'IN_PROGRESS',
+            turnState: 'DESCRIBING',
+            secretWord: 'apple',
+            currentDescriberIndex: 0,
+            timeLimit: 60,
+            turnStartTime: new Date(Date.now() - 58 * 1000).toISOString(), // 2 seconds left
+          };
+          mockGet.mockReturnValue({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+    
+          const event = {
+            ...mockEvent,
+            body: JSON.stringify({ action: 'updateHint', gameId: 'game-1' })
+          };
+    
+          await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+    
+          expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+            Data: expect.stringContaining('timeUp')
+          }));
+      });
+  })
 });
