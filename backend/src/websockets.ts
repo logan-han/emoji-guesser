@@ -978,44 +978,130 @@ async function submitEmoji(connectionId: string, gameId: string, emoji: string, 
     }
 }
 
-async function heartbeat(connectionId: string, event: APIGatewayEvent, sessionId?: string) {
-    // Update last seen timestamp for player in all games
+async function heartbeat(connectionId: string, event: APIGatewayEvent, sessionId?: string, gameId?: string) {
+    // Update last seen timestamp for player in all games and handle hint updates
     try {
-        const scanParams = {
-            TableName: GAMES_TABLE,
-            FilterExpression: 'contains(players, :connectionId) OR contains(players, :sessionId)',
-            ExpressionAttributeValues: {
-                ':connectionId': connectionId,
-                ':sessionId': sessionId || ''
+        console.log(`Heartbeat received from ${connectionId} with gameId: ${gameId}, sessionId: ${sessionId}`);
+        
+        // If we have a gameId, fetch that specific game directly for better performance
+        let gamesToProcess: any[] = [];
+        
+        if (gameId) {
+            try {
+                const gameResult = await dynamoDb.get({ 
+                    TableName: GAMES_TABLE, 
+                    Key: { gameId } 
+                }).promise();
+                
+                if (gameResult.Item) {
+                    gamesToProcess = [gameResult.Item];
+                }
+            } catch (error) {
+                console.error(`Error fetching specific game ${gameId}:`, error);
             }
-        };
+        }
         
-        const result = await dynamoDb.scan(scanParams).promise();
+        // If no specific game or game not found, scan for all games with this player
+        if (gamesToProcess.length === 0) {
+            const scanParams = {
+                TableName: GAMES_TABLE
+            };
+            
+            const scanResult = await dynamoDb.scan(scanParams).promise();
+            
+            if (scanResult.Items) {
+                // Filter games where this player is present
+                gamesToProcess = scanResult.Items.filter(game => 
+                    game.players && game.players.some((player: any) => 
+                        player.connectionId === connectionId || 
+                        (sessionId && player.sessionId === sessionId)
+                    )
+                );
+            }
+        }
         
-        if (result.Items && result.Items.length > 0) {
-            for (const game of result.Items) {
-                let updated = false;
-                for (const player of game.players) {
-                    if (player.connectionId === connectionId || (sessionId && player.sessionId === sessionId)) {
-                        player.lastSeen = new Date().toISOString();
-                        player.connectionId = connectionId; // Update connection if needed
-                        updated = true;
-                    }
+        let heartbeatResponse: any = { action: 'heartbeatAck' };
+        console.log(`Found ${gamesToProcess.length} games for player ${connectionId}`);
+        
+        for (const game of gamesToProcess) {
+            let updated = false;
+            for (const player of game.players) {
+                if (player.connectionId === connectionId || (sessionId && player.sessionId === sessionId)) {
+                    player.lastSeen = new Date().toISOString();
+                    player.connectionId = connectionId; // Update connection if needed
+                    updated = true;
+                }
+            }
+            
+            if (updated) {
+                const updateParams = {
+                    TableName: GAMES_TABLE,
+                    Key: { gameId: game.gameId },
+                    UpdateExpression: 'set players = :p',
+                    ExpressionAttributeValues: { ':p': game.players }
+                };
+                await dynamoDb.update(updateParams).promise();
+            }
+
+            // If the game is in DESCRIBING state AND this heartbeat is for this specific game, update hint
+            if (gameId && game.gameId === gameId && 
+                game.gameState === 'IN_PROGRESS' && game.turnState === 'DESCRIBING' && 
+                game.secretWord && game.turnStartTime) {
+                
+                console.log(`Processing hint update for game ${game.gameId}, current hint: ${game.currentHint}`);
+                
+                const timeElapsed = Date.now() - new Date(game.turnStartTime).getTime();
+                const elapsedSeconds = Math.floor(timeElapsed / 1000);
+                
+                // Check if the round should have ended due to timeout
+                if (elapsedSeconds >= game.timeLimit) {
+                    console.log(`Round timeout detected during heartbeat for game ${game.gameId}. Auto-ending round. Elapsed: ${elapsedSeconds}s, Limit: ${game.timeLimit}s`);
+                    await handleTimeUp(game.gameId, event);
+                    continue;
                 }
                 
-                if (updated) {
-                    const updateParams = {
+                const newHint = generateHint(game.secretWord, timeElapsed, game.timeLimit * 1000);
+                console.log(`Generated new hint for game ${game.gameId}: "${newHint}" (was: "${game.currentHint}")`);
+                
+                // Only update if hint has changed to avoid unnecessary database writes
+                if (game.currentHint !== newHint) {
+                    console.log(`Updating hint for game ${game.gameId} from "${game.currentHint}" to "${newHint}"`);
+                    game.currentHint = newHint;
+                    
+                    const hintUpdateParams = {
                         TableName: GAMES_TABLE,
                         Key: { gameId: game.gameId },
-                        UpdateExpression: 'set players = :p',
-                        ExpressionAttributeValues: { ':p': game.players }
+                        UpdateExpression: 'set currentHint = :h',
+                        ExpressionAttributeValues: { ':h': game.currentHint },
                     };
-                    await dynamoDb.update(updateParams).promise();
+                    await dynamoDb.update(hintUpdateParams).promise();
+
+                    // Broadcast updated hint to all non-describer players and spectators
+                    const playerIds = game.players.map((p: any) => p.connectionId);
+                    const spectatorIds = game.spectators ? game.spectators.map((s: any) => s.connectionId) : [];
+                    const describerId = game.players[game.currentDescriberIndex].connectionId;
+                    const nonDescriberIds = playerIds.filter((id: string) => id !== describerId);
+                    const allNonDescriberIds = [...nonDescriberIds, ...spectatorIds];
+                    
+                    console.log(`Broadcasting hint update to ${allNonDescriberIds.length} players/spectators`);
+                    await broadcastToPlayers(allNonDescriberIds, { 
+                        action: 'hintUpdated', 
+                        hint: game.currentHint
+                    }, event);
+                }
+
+                // Include current hint in heartbeat response if this player is not the describer
+                const isDescriber = game.currentDescriberIndex !== undefined && 
+                                  game.players[game.currentDescriberIndex].connectionId === connectionId;
+                if (!isDescriber) {
+                    heartbeatResponse.currentHint = game.currentHint;
+                    console.log(`Including hint in heartbeat response for non-describer: ${game.currentHint}`);
                 }
             }
         }
         
-        await sendMessageToClient(connectionId, { action: 'heartbeatAck' }, event);
+        console.log(`Sending heartbeat response:`, heartbeatResponse);
+        await sendMessageToClient(connectionId, heartbeatResponse, event);
     } catch (error) {
         console.error('Failed to process heartbeat:', error);
     }
@@ -1404,7 +1490,7 @@ export const default_handler: APIGatewayProxyHandler = async (event) => {
             }
             break;
         case 'heartbeat':
-            await heartbeat(connectionId, apiGatewayEvent, sessionId);
+            await heartbeat(connectionId, apiGatewayEvent, sessionId, gameId);
             break;
         case 'chooseWord':
             if (gameId && word) {

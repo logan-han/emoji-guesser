@@ -93,14 +93,6 @@ const App: React.FC = () => {
       setConnected(true);
       console.log('Connected to WebSocket');
 
-      // Start heartbeat
-      const interval = setInterval(() => {
-        if (newWs.readyState === WebSocket.OPEN) {
-          newWs.send(JSON.stringify({ action: 'heartbeat', sessionId }));
-        }
-      }, 30000); // Every 30 seconds
-      heartbeatIntervalRef.current = interval;
-
       const urlParams = new URLSearchParams(window.location.search);
       const gameId = urlParams.get('gameId');
       if (gameId) {
@@ -117,11 +109,6 @@ const App: React.FC = () => {
     newWs.onclose = () => {
       setConnected(false);
       console.log('Disconnected from WebSocket');
-      // Clear heartbeat on disconnect
-      if (heartbeatIntervalRef.current) {
-        clearInterval(heartbeatIntervalRef.current);
-        heartbeatIntervalRef.current = null;
-      }
     };
 
     newWs.onerror = (error) => {
@@ -242,21 +229,44 @@ const App: React.FC = () => {
     }
   }, [sendMessage, timerInterval]);
 
+  // Heartbeat that includes gameId when in game, or basic heartbeat when not in game
   useEffect(() => {
-    if (game && game.turnState === 'DESCRIBING' && game.gameId) {
-      // Update hint more frequently to ensure smooth progression
-      // The backend will calculate the appropriate hint based on time elapsed
+    if (ws && connected) {
+      const heartbeatInterval = setInterval(() => {
+        if (ws.readyState === WebSocket.OPEN) {
+          const heartbeatMessage = game && game.gameId ? 
+            { action: 'heartbeat', sessionId, gameId: game.gameId } :
+            { action: 'heartbeat', sessionId };
+          
+          ws.send(JSON.stringify(heartbeatMessage));
+        }
+      }, 5000); // Every 5 seconds
+      
+      heartbeatIntervalRef.current = heartbeatInterval;
+      
+      return () => {
+        clearInterval(heartbeatInterval);
+        heartbeatIntervalRef.current = null;
+      };
+    }
+  }, [game, ws, connected, sessionId]);
+
+  useEffect(() => {
+    // Only run hint updates if game is actively being described and not ended
+    if (game && game.gameState === 'IN_PROGRESS' && game.turnState === 'DESCRIBING' && game.gameId) {
+      // Since heartbeat now handles regular updates every 5 seconds, we can reduce frequency here
+      // This provides additional updates for smoother progression during active play
       const hintInterval = setInterval(() => {
         sendMessage({ action: 'updateHint', gameId: game.gameId });
-      }, 2000); // Update hint every 2 seconds for smoother updates
+      }, 10000); // Update hint every 10 seconds (less frequent since heartbeat is every 5s)
       
-      // In the final 5 seconds, update more frequently but not too aggressively
+      // In the final 10 seconds, update more frequently
       let aggressiveInterval: NodeJS.Timeout | null = null;
       const timeLeft = roundTimeLeft;
-      if (timeLeft !== null && timeLeft <= 5) {
+      if (timeLeft !== null && timeLeft <= 10) {
         aggressiveInterval = setInterval(() => {
           sendMessage({ action: 'updateHint', gameId: game.gameId });
-        }, 1000); // Every 1 second in the final 5 seconds
+        }, 2000); // Every 2 seconds in the final 10 seconds
       }
       
       return () => {
@@ -488,6 +498,10 @@ const App: React.FC = () => {
         break;
       case 'heartbeatAck':
         // Heartbeat acknowledged, connection is alive
+        // If heartbeat includes a hint update, apply it
+        if (data.currentHint !== undefined) {
+          setCurrentHint(data.currentHint);
+        }
         break;
       case 'publicGamesList':
         setPublicGames(data.games || []);
