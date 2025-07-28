@@ -6,6 +6,10 @@
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   min-height: 100vh;
   color: #333;
+  /* Improve touch scrolling on mobile */
+  -webkit-overflow-scrolling: touch;
+  /* Prevent horizontal overflow */
+  overflow-x: hidden;
 }
 
 .app h1 {
@@ -543,6 +547,8 @@
   background: white;
   border-radius: 8px;
   border: 1px solid #e5e7eb;
+  /* Improve touch scrolling */
+  -webkit-overflow-scrolling: touch;
 }
 
 .emoji-btn {
@@ -637,6 +643,8 @@
   max-height: 500px;
   min-height: 400px;
   scroll-behavior: smooth;
+  /* Improve touch scrolling */
+  -webkit-overflow-scrolling: touch;
 }
 
 .message {
@@ -1249,8 +1257,21 @@
   background: #667eea;
 }
 
-/* Mobile responsive for radio buttons */
+/* ===== MOBILE RESPONSIVE STYLES ===== */
+
+/* Base mobile styles - applies to small screens */
 @media (max-width: 768px) {
+  .app {
+    padding: 10px;
+    min-height: 100vh;
+  }
+
+  .app h1 {
+    font-size: 2rem;
+    margin-bottom: 20px;
+  }
+
+  /* Create game options mobile layout */
   .create-game-options {
     flex-direction: column;
     gap: 10px;
@@ -1258,6 +1279,256 @@
   
   .create-game-options label {
     width: 100%;
-    max-width: 200px;
+    max-width: 250px;
+  }
+
+  /* Game content mobile layout - stack instead of side-by-side */
+  .game-content {
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .chat-sidebar {
+    width: 100%;
+    order: -1; /* Move chat to top on mobile */
+  }
+
+  .main-content {
+    width: 100%;
+  }
+
+  /* Reduce padding on containers */
+  .lobby, .game-lobby, .game-active, .game-ended, .spectator-view {
+    padding: 20px;
+    margin: 10px 0;
+  }
+
+  /* Mobile chat styles */
+  .messages {
+    min-height: 250px;
+    max-height: 300px;
+  }
+
+  /* Join game section mobile layout */
+  .join-game-section {
+    flex-direction: column;
+    gap: 15px;
+    align-items: stretch;
+  }
+
+  .game-id-input {
+    width: 100%;
+    max-width: 300px;
+  }
+
+  /* Word options mobile layout */
+  .word-options {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .word-option-btn {
+    width: 100%;
+    max-width: 250px;
+  }
+
+  /* Emoji grid mobile optimization */
+  .emoji-grid {
+    grid-template-columns: repeat(auto-fit, minmax(45px, 1fr));
+    max-height: 250px;
+  }
+
+  .emoji-btn {
+    font-size: 1.2rem;
+    min-height: 45px;
+    padding: 8px;
+  }
+
+  /* Quick emoji row mobile */
+  .quick-emoji-row {
+    justify-content: center;
+  }
+
+  /* Players list mobile */
+  .players-list {
+    gap: 10px;
+  }
+
+  .player-card {
+    padding: 12px;
+    flex-wrap: wrap;
+  }
+
+  /* Scoreboard mobile */
+  .scores {
+    gap: 8px;
+  }
+
+  .score-item {
+    padding: 8px 12px;
+  }
+
+  /* Game ended actions mobile */
+  .game-ended-actions {
+    flex-direction: column;
+    gap: 15px;
+    align-items: center;
+  }
+
+  .play-again-btn, .back-to-lobby-btn {
+    width: 100%;
+    max-width: 250px;
+  }
+
+  /* Table mobile responsiveness */
+  .games-table-container {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .games-table {
+    min-width: 600px;
+    font-size: 0.8rem;
+  }
+
+  .games-table th,
+  .games-table td {
+    padding: 8px 6px;
+  }
+
+  /* Form inputs mobile */
+  .word-input, .guess-input, .player-name-input {
+    font-size: 16px; /* Prevents zoom on iOS */
+  }
+}
+
+/* Very small screens (phones in portrait) */
+@media (max-width: 480px) {
+  .app {
+    padding: 8px;
+  }
+
+  .app h1 {
+    font-size: 1.8rem;
+    margin-bottom: 15px;
+  }
+
+  .lobby, .game-lobby, .game-active, .game-ended, .spectator-view {
+    padding: 15px;
+  }
+
+  /* Smaller buttons on very small screens */
+  .create-game-btn, .join-game-btn, .start-game-btn {
+    padding: 12px 20px;
+    font-size: 1rem;
+  }
+
+  /* Timer responsive */
+  .timer {
+    display: block;
+    margin: 10px auto 0;
+    text-align: center;
+  }
+
+  /* Emoji display mobile */
+  .emojis-display {
+    font-size: 1.5rem;
+    padding: 15px;
+    min-height: 60px;
+  }
+
+  /* Hint display mobile */
+  .hint-display {
+    font-size: 1.4rem;
+    padding: 12px;
+    letter-spacing: 0.1em;
+  }
+
+  /* Player tags in table mobile */
+  .player-names {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .player-tag {
+    font-size: 0.7rem;
+    padding: 1px 6px;
+  }
+
+  /* Reduce margins and spacing */
+  .word-master-section, .describer-section, .emojis-section, 
+  .chat-section, .scoreboard {
+    margin-bottom: 15px;
+    padding: 15px;
+  }
+
+  /* Emoji picker mobile optimizations */
+  .emoji-picker-panel {
+    padding: 10px;
+  }
+
+  .emoji-search-input {
+    padding: 8px 35px 8px 8px;
+  }
+
+  .toggle-picker-btn, .clear-emojis-btn {
+    padding: 6px 12px;
+    font-size: 0.8rem;
+  }
+}
+
+/* Landscape orientation on mobile */
+@media (max-width: 768px) and (orientation: landscape) {
+  .game-content {
+    flex-direction: row;
+  }
+
+  .chat-sidebar {
+    width: 40%;
+    min-width: 280px;
+    order: 0;
+  }
+
+  .main-content {
+    width: 60%;
+  }
+
+  .messages {
+    min-height: 200px;
+    max-height: 250px;
+  }
+}
+
+/* Touch-friendly improvements */
+@media (hover: none) and (pointer: coarse) {
+  /* Larger touch targets */
+  .emoji-btn {
+    min-height: 50px;
+    font-size: 1.3rem;
+  }
+
+  .word-option-btn {
+    padding: 15px 25px;
+  }
+
+  .join-table-btn {
+    padding: 10px 18px;
+  }
+
+  /* Remove hover effects on touch devices */
+  .create-game-btn:hover,
+  .join-game-btn:hover,
+  .start-game-btn:hover,
+  .emoji-btn:hover,
+  .word-option-btn:hover {
+    transform: none;
+    box-shadow: none;
+  }
+}
+
+/* High DPI screens */
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {
+  .emoji-btn, .emojis-display {
+    image-rendering: crisp-edges;
   }
 }
