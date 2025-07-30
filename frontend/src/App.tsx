@@ -61,6 +61,7 @@ const App: React.FC = () => {
   const [timeLimit, setTimeLimit] = useState<number>(120); // 2 minutes in seconds
   const [maxRounds, setMaxRounds] = useState<number>(2);
   const [roundTimeLeft, setRoundTimeLeft] = useState<number | null>(null);
+  const [chooseWordTimeLeft, setChooseWordTimeLeft] = useState<number | null>(null);
   const [timerInterval, setTimerInterval] = useState<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -341,6 +342,21 @@ const App: React.FC = () => {
         setIsChoosingWord(true);
         setIsDescriber(false);
         setWordOptions(data.wordOptions);
+        setChooseWordTimeLeft(10);
+
+        const wordChoiceTimer = setInterval(() => {
+          setChooseWordTimeLeft(prev => {
+            if (prev === null || prev <= 1) {
+              clearInterval(wordChoiceTimer);
+              if (wordOptions.length > 0) {
+                chooseWord(wordOptions[0]);
+              }
+              return 0;
+            }
+            return prev - 1;
+          });
+        }, 1000);
+
         setMessages(prev => [...prev, { 
           text: `📝 Choose a word to describe from the options below!`, 
           type: 'system', 
@@ -958,6 +974,7 @@ const App: React.FC = () => {
                 <div className="word-choosing-section">
                   <h3>🎯 Choose a Word to Describe!</h3>
                   <p>Select one of the three words below:</p>
+                  <div className="timer">Time left: {chooseWordTimeLeft}</div>
                   <div className="word-options">
                     {wordOptions.map((word, index) => (
                       <button 

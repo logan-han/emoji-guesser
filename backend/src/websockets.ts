@@ -703,6 +703,20 @@ async function startGame(connectionId: string, gameId: string, event: APIGateway
             timestamp: Date.now()
         }, event);
 
+        // Schedule a timeout for word selection
+        const wordChoiceTimeout = setTimeout(async () => {
+            try {
+                const freshGame = await dynamoDb.get({ TableName: GAMES_TABLE, Key: { gameId } }).promise();
+                if (freshGame.Item && freshGame.Item.turnState === 'CHOOSING_WORD') {
+                    await chooseWord(describerId, gameId, game.wordOptions[0], event);
+                }
+            } catch (error) {
+                console.error(`Error in word choice timeout for game ${gameId}:`, error);
+            }
+        }, 10000); // 10 seconds
+
+        activeTimeouts.set(`${gameId}-chooseWord`, wordChoiceTimeout);
+
     } catch (error) {
         console.error(`Failed to start game ${gameId}:`, error);
         await sendMessageToClient(connectionId, { action: 'error', message: 'Could not start game.' }, event);
@@ -729,6 +743,13 @@ async function chooseWord(connectionId: string, gameId: string, word: string, ev
         if (!game.wordOptions || !game.wordOptions.includes(word)) {
             await sendMessageToClient(connectionId, { action: 'error', message: 'Invalid word choice.' }, event);
             return;
+        }
+
+        // Clear the word choice timeout
+        const wordChoiceTimeout = activeTimeouts.get(`${gameId}-chooseWord`);
+        if (wordChoiceTimeout) {
+            clearTimeout(wordChoiceTimeout);
+            activeTimeouts.delete(`${gameId}-chooseWord`);
         }
 
         game.secretWord = word.trim();
