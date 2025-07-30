@@ -882,6 +882,8 @@ async function submitGuess(connectionId: string, gameId: string, guess: string, 
             guesser.score += baseScore + timeBonus;
             describer.score += 75; // Points for successful description
 
+            game.updatedAt = new Date().toISOString();
+
             const playerIds = game.players.map((p: any) => p.connectionId);
             const spectatorIds = game.spectators ? game.spectators.map((s: any) => s.connectionId) : [];
             const allIds = [...playerIds, ...spectatorIds];
