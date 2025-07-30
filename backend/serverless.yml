@@ -54,6 +54,10 @@ functions:
     events:
       - websocket:
           route: $default
+  cleanupGames:
+    handler: src/websockets.cleanupGames
+    events:
+      - schedule: rate(1 hour)
 
 custom:
   webpack:

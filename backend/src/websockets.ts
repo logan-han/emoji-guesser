@@ -450,25 +450,28 @@ async function sendPublicGamesList(connectionId: string, event: APIGatewayEvent)
         await sendMessageToClient(connectionId, { action: 'error', message: 'Could not list public games.' }, event);
     }
 }
-async function createGame(connectionId: string, event: APIGatewayEvent, sessionId?: string, timeLimit?: number, isPublic?: boolean) {
+async function createGame(connectionId: string, event: APIGatewayEvent, sessionId?: string, timeLimit?: number, maxRounds?: number, isPublic?: boolean, playerName?: string) {
     const gameId = uuidv4().substring(0, 6).toUpperCase();
-    const ttl = Math.floor(Date.now() / 1000) + 86400; // 24 hours from now
+    const now = new Date().toISOString();
+    const ttl = Math.floor(Date.now() / 1000) + (24 * 60 * 60); // 24-hour TTL
+
     const game = {
         gameId,
         ownerId: connectionId,
-        ownerSessionId: sessionId, // Store owner session for better identification
-        players: [{ 
-            connectionId, 
+        ownerSessionId: sessionId,
+        players: [{
+            connectionId,
             sessionId,
-            score: 0, 
-            name: 'Player 1',
-            joinedAt: new Date().toISOString(),
-            lastSeen: new Date().toISOString()
+            score: 0,
+            name: playerName || 'Player 1',
+            joinedAt: now,
+            lastSeen: now,
         }],
         gameState: 'WAITING',
-        createdAt: new Date().toISOString(),
-        timeLimit: timeLimit || 120, // Use provided timeLimit or default to 2 minutes
-        maxRounds: 0, // Will be set to number of players when game starts
+        createdAt: now,
+        updatedAt: now, // Add updatedAt timestamp
+        timeLimit: timeLimit || 120,
+        maxRounds: maxRounds || 2, // Default to 2 rounds if not provided
         ttl,
         isPublic: isPublic || false,
     };
@@ -1540,4 +1543,40 @@ export const default_handler: APIGatewayProxyHandler = async (event) => {
     }
 
     return { statusCode: 200, body: 'Message handled.' };
+};
+
+export const cleanupGames: APIGatewayProxyHandler = async (event) => {
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+
+    const scanParams = {
+        TableName: GAMES_TABLE,
+    };
+
+    try {
+        const result = await dynamoDb.scan(scanParams).promise();
+        if (!result.Items) {
+            return { statusCode: 200, body: 'No games to process.' };
+        }
+
+        for (const game of result.Items) {
+            const hasActivePlayers = game.players.some((p: any) => new Date(p.lastSeen).toISOString() > fiveMinutesAgo);
+
+            if (game.players.length === 0) {
+                await dynamoDb.delete({ TableName: GAMES_TABLE, Key: { gameId: game.gameId } }).promise();
+                console.log(`Deleted game ${game.gameId} due to no players.`);
+            } else if ((game.gameState === 'WAITING' || game.gameState === 'ENDED') && game.updatedAt < twoHoursAgo) {
+                await dynamoDb.delete({ TableName: GAMES_TABLE, Key: { gameId: game.gameId } }).promise();
+                console.log(`Deleted stale game ${game.gameId} in ${game.gameState} state.`);
+            } else if (game.gameState === 'IN_PROGRESS' && !hasActivePlayers) {
+                await dynamoDb.delete({ TableName: GAMES_TABLE, Key: { gameId: game.gameId } }).promise();
+                console.log(`Deleted inactive game ${game.gameId} in IN_PROGRESS state.`);
+            }
+        }
+
+        return { statusCode: 200, body: 'Cleanup complete.' };
+    } catch (error) {
+        console.error('Error during game cleanup:', error);
+        return { statusCode: 500, body: 'Error during cleanup.' };
+    }
 };
