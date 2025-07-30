@@ -520,7 +520,7 @@ const App: React.FC = () => {
 
   const createGame = () => {
     playSound('buttonClick');
-    sendMessage({ action: 'createGame', sessionId, timeLimit, isPublic });
+    sendMessage({ action: 'createGame', sessionId, playerName: playerName || undefined, timeLimit, isPublic });
   };
 
   const startGame = () => {
