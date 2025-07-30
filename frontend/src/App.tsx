@@ -25,6 +25,7 @@ interface Game {
   wordOptions?: string[];
   turnState?: 'CHOOSING_WORD' | 'DESCRIBING';
   timeLimit?: number;
+  maxRounds?: number;
   turnStartTime?: string;
   currentHint?: string;
 }
@@ -58,6 +59,7 @@ const App: React.FC = () => {
   const [editingName, setEditingName] = useState<boolean>(false);
   const [copyFeedback, setCopyFeedback] = useState<boolean>(false);
   const [timeLimit, setTimeLimit] = useState<number>(120); // 2 minutes in seconds
+  const [maxRounds, setMaxRounds] = useState<number>(2);
   const [roundTimeLeft, setRoundTimeLeft] = useState<number | null>(null);
   const [timerInterval, setTimerInterval] = useState<NodeJS.Timeout | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -520,12 +522,12 @@ const App: React.FC = () => {
 
   const createGame = () => {
     playSound('buttonClick');
-    sendMessage({ action: 'createGame', sessionId, playerName: playerName || undefined, timeLimit, isPublic });
+    sendMessage({ action: 'createGame', sessionId, playerName: playerName || undefined, timeLimit, maxRounds, isPublic });
   };
 
   const startGame = () => {
     playSound('buttonClick');
-    if (game) sendMessage({ action: 'startGame', gameId: game.gameId, sessionId, timeLimit });
+    if (game) sendMessage({ action: 'startGame', gameId: game.gameId, sessionId, timeLimit, maxRounds });
   };
 
   const joinGameById = (id?: string) => {
@@ -611,7 +613,7 @@ const App: React.FC = () => {
 
   const playAgain = () => {
     if (game) {
-      sendMessage({ action: 'restartGame', gameId: game.gameId, sessionId, timeLimit });
+      sendMessage({ action: 'restartGame', gameId: game.gameId, sessionId, timeLimit, maxRounds });
     }
   };
 
@@ -768,6 +770,20 @@ const App: React.FC = () => {
                   <option value={180}>3 minutes</option>
                   <option value={240}>4 minutes</option>
                   <option value={300}>5 minutes</option>
+                </select>
+              </div>
+              <div className="setting-item">
+                <label htmlFor="max-rounds">Rounds:</label>
+                <select
+                  id="max-rounds"
+                  value={maxRounds}
+                  onChange={(e) => setMaxRounds(Number(e.target.value))}
+                  className="max-rounds-select"
+                >
+                  <option value={2}>2 rounds</option>
+                  <option value={3}>3 rounds</option>
+                  <option value={4}>4 rounds</option>
+                  <option value={5}>5 rounds</option>
                 </select>
               </div>
             </div>
