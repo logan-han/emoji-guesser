@@ -554,7 +554,7 @@ async function joinGame(connectionId: string, gameId: string, event: APIGatewayE
         }
 
         // Handle new players
-        if (game.gameState !== 'WAITING') {
+        if (game.gameState === 'IN_PROGRESS' || game.gameState === 'STARTING' || game.gameState === 'ENDED') {
             // Game in progress, add as spectator
             const newSpectator = {
                 connectionId,
@@ -610,17 +610,34 @@ async function joinGame(connectionId: string, gameId: string, event: APIGatewayE
     }
 }
 
-async function startGame(connectionId: string, gameId: string, event: APIGatewayEvent, sessionId?: string, timeLimit?: number) {
-    const getParams = { TableName: GAMES_TABLE, Key: { gameId } };
-
+async function startGame(connectionId: string, gameId: string, event: APIGatewayEvent, sessionId?: string, timeLimit?: number, maxRounds?: number) {
     try {
-        const result = await dynamoDb.get(getParams).promise();
-        if (!result.Item) {
-            await sendMessageToClient(connectionId, { action: 'error', message: 'Game not found.' }, event);
+        // Atomically set game state to STARTING to prevent race conditions
+        const startingUpdateParams = {
+            TableName: GAMES_TABLE,
+            Key: { gameId },
+            UpdateExpression: 'set gameState = :starting, updatedAt = :now',
+            ConditionExpression: 'gameState = :waiting',
+            ExpressionAttributeValues: {
+                ':starting': 'STARTING',
+                ':waiting': 'WAITING',
+                ':now': new Date().toISOString(),
+            },
+            ReturnValues: 'ALL_NEW',
+        };
+
+        const startingResult = await dynamoDb.update(startingUpdateParams).promise();
+        let game = startingResult.Attributes;
+
+        if (!game) {
+            // This could happen if the game was not in WAITING state, so the condition failed.
+            // We can silently fail or notify the user.
+            console.log(`Game ${gameId} could not be started, likely not in WAITING state.`);
             return;
         }
 
-        let game = await cleanupStalePlayers(result.Item, event);
+        // Now that the game is in STARTING state, other players will join as spectators.
+        game = await cleanupStalePlayers(game, event);
         if (!game) {
             await sendMessageToClient(connectionId, { action: 'error', message: 'Game has been removed due to inactivity.' }, event);
             return;
@@ -657,15 +674,15 @@ async function startGame(connectionId: string, gameId: string, event: APIGateway
         // Generate 3 random words for the first describer to choose from
         game.wordOptions = await getRandomWords();
         
-        // Update timeLimit if provided
-        if (timeLimit !== undefined) {
-            game.timeLimit = timeLimit;
-        }
+        // Update timeLimit and maxRounds if provided
+        if (timeLimit !== undefined) game.timeLimit = timeLimit;
+        if (maxRounds !== undefined) game.maxRounds = maxRounds;
 
         const updateParams = {
             TableName: GAMES_TABLE,
             Key: { gameId },
-            UpdateExpression: 'set gameState = :s, currentRound = :r, currentDescriberIndex = :d, players = :p, turnState = :t, maxRounds = :m, turnStartTime = :ts, timeLimit = :tl, wordOptions = :wo',
+            UpdateExpression: 'set gameState = :s, currentRound = :r, currentDescriberIndex = :d, players = :p, turnState = :t, maxRounds = :m, turnStartTime = :ts, timeLimit = :tl, wordOptions = :wo, updatedAt = :now',
+            ConditionExpression: 'gameState = :starting', // Ensure we are still in the starting state
             ExpressionAttributeValues: {
                 ':s': game.gameState,
                 ':r': game.currentRound,
@@ -675,7 +692,9 @@ async function startGame(connectionId: string, gameId: string, event: APIGateway
                 ':m': game.maxRounds,
                 ':ts': game.turnStartTime,
                 ':tl': game.timeLimit,
-                ':wo': game.wordOptions
+                ':wo': game.wordOptions,
+                ':now': new Date().toISOString(),
+                ':starting': 'STARTING',
             },
         };
 
