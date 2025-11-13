@@ -7,7 +7,7 @@ build:
 
 provider:
   name: aws
-  runtime: nodejs20.x
+  runtime: nodejs22.x
   stage: dev
   region: ap-southeast-4
   websocketsApiName: emoji-guesser-ws
