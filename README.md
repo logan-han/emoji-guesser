@@ -34,7 +34,7 @@ emoji-guesser/
 
 ### Prerequisites
 
--   Node.js (v20 or later)
+-   Node.js (v22 or later)
 -   Yarn
 -   Serverless Framework (`npm install -g serverless`)
 -   Configured AWS Credentials
