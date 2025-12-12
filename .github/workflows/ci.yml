@@ -59,6 +59,23 @@ jobs:
         run: yarn tsc --noEmit
         working-directory: ./backend
 
+      - name: Install Playwright Browsers
+        run: npx playwright install --with-deps chromium
+        working-directory: ./frontend
+
+      - name: Run E2E Tests
+        run: yarn test:e2e
+        working-directory: ./frontend
+        continue-on-error: true
+
+      - name: Upload Playwright Report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 30
+
   deploy-backend:
     needs: test
     runs-on: ubuntu-latest

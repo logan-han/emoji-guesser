@@ -178,13 +178,13 @@ describe('App Component', () => {
 
   test('handles error messages', async () => {
     render(<App />);
-    
+
     await waitFor(() => {
       expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument();
     });
 
     const websocket = mockWebSocketInstances[0];
-    
+
     act(() => {
       websocket.onmessage({
         data: JSON.stringify({
@@ -193,9 +193,11 @@ describe('App Component', () => {
         })
       });
     });
-    
+
+    // Check for error notification instead of alert
     await waitFor(() => {
-      expect(mockAlert).toHaveBeenCalledWith('Error: Something went wrong');
+      expect(screen.getByRole('alert')).toBeInTheDocument();
+      expect(screen.getByText(/Something went wrong/)).toBeInTheDocument();
     });
   });
 
@@ -417,5 +419,745 @@ describe('App Component', () => {
 
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith('http://localhost/?gameId=GAME123');
     await waitFor(() => expect(screen.getByText('✅ Copied!')).toBeInTheDocument());
+  });
+
+  test('handles spectator join', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'spectatorJoined',
+          game: {
+            gameId: 'GAME123',
+            gameState: 'IN_PROGRESS',
+            players: [
+              { name: 'Player1', connectionId: 'conn-1', score: 50 },
+              { name: 'Player2', connectionId: 'conn-2', score: 30 }
+            ],
+            ownerId: 'conn-1',
+            currentRound: 1,
+            currentDescriberIndex: 0
+          }
+        })
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Spectator Mode/)).toBeInTheDocument();
+    });
+  });
+
+  test('handles new emoji message', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+
+    // First, get into a game
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'gameStarted',
+          game: {
+            gameId: 'GAME123',
+            gameState: 'IN_PROGRESS',
+            players: [{ name: 'TestPlayer', connectionId: 'test-conn', score: 0 }],
+            ownerId: 'test-conn',
+            currentRound: 1,
+            currentDescriberIndex: 0
+          }
+        })
+      });
+    });
+
+    // Then receive an emoji
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'newEmoji',
+          emoji: '🎉'
+        })
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/🎉/)).toBeInTheDocument();
+    });
+  });
+
+  test('handles new guess message', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'gameStarted',
+          game: {
+            gameId: 'GAME123',
+            gameState: 'IN_PROGRESS',
+            players: [{ name: 'TestPlayer', connectionId: 'test-conn', score: 0 }],
+            ownerId: 'test-conn',
+            currentRound: 1,
+            currentDescriberIndex: 0
+          }
+        })
+      });
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'newGuess',
+          text: 'Player2: apple'
+        })
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Player2: apple')).toBeInTheDocument();
+    });
+  });
+
+  test('handles word guessed correctly', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'gameStarted',
+          game: {
+            gameId: 'GAME123',
+            gameState: 'IN_PROGRESS',
+            players: [{ name: 'TestPlayer', connectionId: 'test-conn', score: 0 }],
+            ownerId: 'test-conn',
+            currentRound: 1
+          }
+        })
+      });
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'wordGuessed',
+          guesserName: 'Player2',
+          word: 'elephant',
+          game: {
+            gameId: 'GAME123',
+            gameState: 'IN_PROGRESS',
+            players: [
+              { name: 'TestPlayer', connectionId: 'test-conn', score: 75 },
+              { name: 'Player2', connectionId: 'conn-2', score: 100 }
+            ],
+            ownerId: 'test-conn',
+            currentRound: 1
+          }
+        })
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Player2 guessed correctly/)).toBeInTheDocument();
+      expect(screen.getByText(/elephant/)).toBeInTheDocument();
+    });
+  });
+
+  test('handles next turn message', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'gameStarted',
+          game: {
+            gameId: 'GAME123',
+            gameState: 'IN_PROGRESS',
+            players: [{ name: 'TestPlayer', connectionId: 'test-conn', score: 0 }],
+            ownerId: 'test-conn',
+            currentRound: 1,
+            maxRounds: 2
+          }
+        })
+      });
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'nextTurn',
+          game: {
+            gameId: 'GAME123',
+            gameState: 'IN_PROGRESS',
+            players: [{ name: 'TestPlayer', connectionId: 'test-conn', score: 0 }],
+            ownerId: 'test-conn',
+            currentRound: 1,
+            maxRounds: 2,
+            currentDescriberIndex: 1
+          }
+        })
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Round 1 of 2/)).toBeInTheDocument();
+    });
+  });
+
+  test('handles time up message', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'gameStarted',
+          game: {
+            gameId: 'GAME123',
+            gameState: 'IN_PROGRESS',
+            players: [{ name: 'TestPlayer', connectionId: 'test-conn', score: 0 }],
+            ownerId: 'test-conn',
+            currentRound: 1
+          }
+        })
+      });
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'timeUp',
+          message: "⏰ Time's up!",
+          word: 'secret'
+        })
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Time's up/)).toBeInTheDocument();
+      expect(screen.getByText(/secret/)).toBeInTheDocument();
+    });
+  });
+
+  test('handles player left message', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'gameCreated',
+          game: {
+            gameId: 'GAME123',
+            gameState: 'WAITING',
+            players: [
+              { name: 'TestPlayer', connectionId: 'test-conn', score: 0 },
+              { name: 'Player2', connectionId: 'conn-2', score: 0 }
+            ],
+            ownerId: 'test-conn'
+          }
+        })
+      });
+    });
+
+    // Wait for game lobby to appear
+    await waitFor(() => expect(screen.getByText(/Game Lobby/)).toBeInTheDocument());
+
+    // Initially 2 players
+    expect(screen.getByText(/Players \(2\)/)).toBeInTheDocument();
+
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'playerLeft',
+          message: 'Player2 left the game',
+          game: {
+            gameId: 'GAME123',
+            gameState: 'WAITING',
+            players: [{ name: 'TestPlayer', connectionId: 'test-conn', score: 0 }],
+            ownerId: 'test-conn'
+          }
+        })
+      });
+    });
+
+    // Should now only have 1 player
+    await waitFor(() => {
+      expect(screen.getByText(/Players \(1\)/)).toBeInTheDocument();
+    });
+  });
+
+  test('handles game restarted message', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'gameRestarted',
+          game: {
+            gameId: 'GAME123',
+            gameState: 'WAITING',
+            players: [{ name: 'TestPlayer', connectionId: 'test-conn', score: 0 }],
+            ownerId: 'test-conn'
+          },
+          message: '🔄 Game restarted!'
+        })
+      });
+    });
+
+    // Game should be back in WAITING/lobby state
+    await waitFor(() => {
+      expect(screen.getByText(/Game Lobby/)).toBeInTheDocument();
+      expect(screen.getByText('GAME123')).toBeInTheDocument();
+    });
+  });
+
+  test('handles heartbeat acknowledgement with hint', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'heartbeatAck',
+          currentHint: '_ _ _ _'
+        })
+      });
+    });
+
+    // Heartbeat ack should not cause any visible changes unless in a game
+    expect(screen.getByText(/Create New Game/)).toBeInTheDocument();
+  });
+
+  test('handles public games list', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'publicGamesList',
+          games: [
+            {
+              gameId: 'PUBLIC1',
+              gameState: 'WAITING',
+              players: [{ name: 'Host', connectionId: 'host-conn', score: 0 }]
+            }
+          ]
+        })
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('#PUBLIC1')).toBeInTheDocument();
+    });
+  });
+
+  test('handles describe word message', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'gameStarted',
+          game: {
+            gameId: 'GAME123',
+            gameState: 'IN_PROGRESS',
+            players: [
+              { name: 'TestPlayer', connectionId: 'test-conn', score: 0 }
+            ],
+            ownerId: 'test-conn',
+            currentRound: 1,
+            currentDescriberIndex: 0,
+            turnState: 'CHOOSING_WORD'
+          }
+        })
+      });
+    });
+
+    // Wait for game in progress
+    await waitFor(() => expect(screen.getByText(/Game in Progress/)).toBeInTheDocument());
+
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'describeWord',
+          word: 'elephant',
+          game: {
+            gameId: 'GAME123',
+            gameState: 'IN_PROGRESS',
+            players: [{ name: 'TestPlayer', connectionId: 'test-conn', score: 0 }],
+            currentRound: 1,
+            currentDescriberIndex: 0,
+            turnState: 'DESCRIBING',
+            turnStartTime: new Date().toISOString(),
+            timeLimit: 120
+          }
+        })
+      });
+    });
+
+    await waitFor(() => {
+      // Verify the word is shown somewhere and the describer view is active
+      expect(screen.getByText('elephant')).toBeInTheDocument();
+    });
+  });
+
+  test('handles turn started message', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'gameStarted',
+          game: {
+            gameId: 'GAME123',
+            gameState: 'IN_PROGRESS',
+            players: [
+              { name: 'Player1', connectionId: 'conn-1', score: 0 },
+              { name: 'TestPlayer', connectionId: 'test-conn', score: 0 }
+            ],
+            ownerId: 'conn-1',
+            currentRound: 1,
+            currentDescriberIndex: 0
+          }
+        })
+      });
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'turnStarted',
+          hint: '_ _ _ _ _',
+          game: {
+            gameId: 'GAME123',
+            gameState: 'IN_PROGRESS',
+            players: [
+              { name: 'Player1', connectionId: 'conn-1', score: 0 },
+              { name: 'TestPlayer', connectionId: 'test-conn', score: 0 }
+            ],
+            currentRound: 1,
+            currentDescriberIndex: 0,
+            turnState: 'DESCRIBING',
+            turnStartTime: new Date().toISOString(),
+            timeLimit: 120
+          }
+        })
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Player1 is now describing/)).toBeInTheDocument();
+    });
+  });
+
+  test('handles hint updated message', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'hintUpdated',
+          hint: 'E _ _ P _ _ _ _'
+        })
+      });
+    });
+
+    // Since we're not in a game, this shouldn't show anything visible
+    // but it tests the message handler path
+    expect(screen.getByText(/Create New Game/)).toBeInTheDocument();
+  });
+
+  test('handles status message', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'gameStarted',
+          game: {
+            gameId: 'GAME123',
+            gameState: 'IN_PROGRESS',
+            players: [{ name: 'TestPlayer', connectionId: 'test-conn', score: 0 }],
+            ownerId: 'test-conn',
+            currentRound: 1
+          }
+        })
+      });
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'statusMessage',
+          message: 'Player1 is choosing a word...',
+          timestamp: Date.now()
+        })
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Player1 is choosing a word...')).toBeInTheDocument();
+    });
+  });
+
+  test('handles player rejoined message', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'gameCreated',
+          game: {
+            gameId: 'GAME123',
+            gameState: 'WAITING',
+            players: [{ name: 'TestPlayer', connectionId: 'test-conn', score: 0 }],
+            ownerId: 'test-conn'
+          }
+        })
+      });
+    });
+
+    await waitFor(() => expect(screen.getByText(/Game Lobby/)).toBeInTheDocument());
+
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'playerRejoined',
+          rejoinedPlayer: 'Player2',
+          game: {
+            gameId: 'GAME123',
+            gameState: 'WAITING',
+            players: [
+              { name: 'TestPlayer', connectionId: 'test-conn', score: 0 },
+              { name: 'Player2', connectionId: 'conn-2', score: 0 }
+            ],
+            ownerId: 'test-conn'
+          }
+        })
+      });
+    });
+
+    // Player count should increase
+    await waitFor(() => {
+      expect(screen.getByText(/Players \(2\)/)).toBeInTheDocument();
+    });
+  });
+
+  test('displays spectators in game lobby', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'gameCreated',
+          game: {
+            gameId: 'GAME123',
+            gameState: 'WAITING',
+            players: [{ name: 'TestPlayer', connectionId: 'test-conn', score: 0 }],
+            ownerId: 'test-conn',
+            spectators: [{ name: 'Spectator1', connectionId: 'spec-1' }]
+          }
+        })
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Spectators (1)')).toBeInTheDocument();
+      expect(screen.getByText('Spectator1')).toBeInTheDocument();
+    });
+  });
+
+  test('loads saved session from localStorage', async () => {
+    // Access the original mock from beforeEach
+    const storedData: Record<string, string> = {
+      'emoji-guesser-session': 'saved-session-123',
+      'emoji-guesser-player-name': 'SavedPlayerName'
+    };
+
+    Object.defineProperty(window, 'localStorage', {
+      value: {
+        getItem: jest.fn((key: string) => storedData[key] || null),
+        setItem: jest.fn(),
+        removeItem: jest.fn(),
+        clear: jest.fn(),
+        key: jest.fn(),
+        length: 0,
+      },
+      writable: true,
+    });
+
+    render(<App />);
+
+    // The app should render and attempt to use localStorage
+    await waitFor(() => expect(screen.getByText(/Emoji Guesser/)).toBeInTheDocument());
+  });
+
+  test('handles connected message', async () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'connected',
+          connectionId: 'new-conn-123'
+        })
+      });
+    });
+
+    // The connectionId should be stored internally
+    consoleSpy.mockRestore();
+  });
+
+  test('handles unknown message type', async () => {
+    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'unknownAction',
+          data: 'some data'
+        })
+      });
+    });
+
+    expect(consoleSpy).toHaveBeenCalledWith('Unknown message:', expect.objectContaining({ action: 'unknownAction' }));
+    consoleSpy.mockRestore();
+  });
+
+  test('shows start game button when owner has 2+ players', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'gameCreated',
+          game: {
+            gameId: 'GAME123',
+            gameState: 'WAITING',
+            players: [
+              { name: 'TestPlayer', connectionId: 'test-conn', score: 0, wantsToPlayAgain: true },
+              { name: 'Player2', connectionId: 'conn-2', score: 0, wantsToPlayAgain: true }
+            ],
+            ownerId: 'test-conn'
+          }
+        })
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Start Game/)).toBeInTheDocument();
+    });
+  });
+
+  test('handles game restarted with isNewOwner flag', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+
+    // First create a game as another player
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'gameCreated',
+          game: {
+            gameId: 'GAME123',
+            gameState: 'WAITING',
+            players: [
+              { name: 'OriginalOwner', connectionId: 'original-owner', score: 0 },
+              { name: 'TestPlayer', connectionId: 'test-conn', score: 0 }
+            ],
+            ownerId: 'original-owner'
+          }
+        })
+      });
+    });
+
+    await waitFor(() => expect(screen.getByText('TestPlayer')).toBeInTheDocument());
+
+    // Now restart the game with isNewOwner flag
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'gameRestarted',
+          game: {
+            gameId: 'GAME123',
+            gameState: 'WAITING',
+            players: [{ name: 'TestPlayer', connectionId: 'test-conn', score: 0 }],
+            ownerId: 'test-conn'
+          },
+          isNewOwner: true
+        })
+      });
+    });
+
+    // The test player should now be the owner (shown with crown)
+    await waitFor(() => {
+      expect(screen.getByTitle('Game Host')).toBeInTheDocument();
+    });
+  });
+
+  test('clipboard copy failure is handled gracefully', async () => {
+    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+    Object.assign(navigator, {
+      clipboard: {
+        writeText: jest.fn().mockRejectedValue(new Error('Copy failed'))
+      }
+    });
+
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+    act(() => {
+      websocket.onmessage({ data: JSON.stringify({ action: 'gameCreated', game: { gameId: 'GAME123', gameState: 'WAITING', players: [{ name: 'TestPlayer', connectionId: 'test-conn', score: 0 }], ownerId: 'test-conn' } }) });
+    });
+
+    await waitFor(() => expect(screen.getByText('📋 Copy')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByText('📋 Copy'));
+
+    await waitFor(() => {
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to copy:', expect.any(Error));
+    });
+
+    consoleErrorSpy.mockRestore();
   });
 });

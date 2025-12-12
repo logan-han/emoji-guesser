@@ -36,6 +36,28 @@ interface Message {
   timestamp: number;
 }
 
+// WebSocket message types
+interface WebSocketOutgoingMessage {
+  action: string;
+  gameId?: string;
+  sessionId?: string;
+  playerName?: string;
+  word?: string;
+  guess?: string;
+  emoji?: string;
+  timeLimit?: number;
+  maxRounds?: number;
+  isPublic?: boolean;
+  name?: string;
+}
+
+// WebSocket incoming message type - server responses have dynamic structure based on action
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type WebSocketIncomingMessage = {
+  action: string;
+  [key: string]: any; // Server responses have varying shapes based on action type
+}
+
 const App: React.FC = () => {
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [connectionId, setConnectionId] = useState<string | null>(null);
@@ -63,7 +85,39 @@ const App: React.FC = () => {
   const [roundTimeLeft, setRoundTimeLeft] = useState<number | null>(null);
   const [chooseWordTimeLeft, setChooseWordTimeLeft] = useState<number | null>(null);
   const [timerInterval, setTimerInterval] = useState<NodeJS.Timeout | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [lastGuessTime, setLastGuessTime] = useState<number>(0); // Rate limiting for guesses
+  const [reconnectTrigger, setReconnectTrigger] = useState<number>(0); // Trigger WebSocket reconnection
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const timeUpSentRef = useRef<boolean>(false); // Track if timeUp was already sent for current round
+  const pendingTimeoutsRef = useRef<NodeJS.Timeout[]>([]); // Track pending timeouts for cleanup
+  const reconnectAttemptsRef = useRef<number>(0);
+  const maxReconnectAttempts = 5;
+
+  // Input validation helpers
+  const sanitizePlayerName = (name: string): string => {
+    // Remove HTML tags, limit length, trim whitespace
+    return name.replace(/<[^>]*>/g, '').trim().slice(0, 20);
+  };
+
+  const sanitizeGuess = (guess: string): string => {
+    // Remove HTML tags, limit length, normalize
+    return guess.replace(/<[^>]*>/g, '').trim().toLowerCase().slice(0, 50);
+  };
+
+  const isValidPlayerName = (name: string): boolean => {
+    const sanitized = sanitizePlayerName(name);
+    return sanitized.length >= 1 && sanitized.length <= 20;
+  };
+
+  // Clear error after 5 seconds
+  useEffect(() => {
+    if (errorMessage) {
+      const timer = setTimeout(() => setErrorMessage(null), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [errorMessage]);
 
   // Load saved player data on mount
   useEffect(() => {
@@ -73,7 +127,10 @@ const App: React.FC = () => {
     if (savedSessionId) {
       setSessionId(savedSessionId);
     } else {
-      const newSessionId = `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      // Use crypto.randomUUID() for secure session ID generation
+      const newSessionId = typeof crypto !== 'undefined' && crypto.randomUUID
+        ? crypto.randomUUID()
+        : `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       setSessionId(newSessionId);
       localStorage.setItem('emoji-guesser-session', newSessionId);
     }
@@ -94,14 +151,16 @@ const App: React.FC = () => {
 
     newWs.onopen = () => {
       setConnected(true);
+      reconnectAttemptsRef.current = 0; // Reset on successful connection
+      setErrorMessage(null); // Clear any connection error
       console.log('Connected to WebSocket');
 
       const urlParams = new URLSearchParams(window.location.search);
       const gameId = urlParams.get('gameId');
       if (gameId) {
         // Send session ID with join request to maintain identity
-        newWs.send(JSON.stringify({ 
-          action: 'joinGame', 
+        newWs.send(JSON.stringify({
+          action: 'joinGame',
           gameId,
           sessionId,
           playerName: playerName || undefined
@@ -112,11 +171,26 @@ const App: React.FC = () => {
     newWs.onclose = () => {
       setConnected(false);
       console.log('Disconnected from WebSocket');
+
+      // Attempt reconnection with exponential backoff
+      if (reconnectAttemptsRef.current < maxReconnectAttempts) {
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000);
+        reconnectAttemptsRef.current++;
+        console.log(`Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current}/${maxReconnectAttempts})`);
+        const reconnectTimeout = setTimeout(() => {
+          // Trigger reconnection
+          setReconnectTrigger(t => t + 1);
+        }, delay);
+        pendingTimeoutsRef.current.push(reconnectTimeout);
+      } else {
+        setErrorMessage('Connection lost. Please refresh the page to reconnect.');
+      }
     };
 
     newWs.onerror = (error) => {
       console.error('WebSocket error:', error);
       setConnected(false);
+      setErrorMessage('Connection error. Retrying...');
     };
 
     newWs.onmessage = (event) => {
@@ -130,10 +204,13 @@ const App: React.FC = () => {
         clearInterval(heartbeatIntervalRef.current);
         heartbeatIntervalRef.current = null;
       }
+      // Clean up all pending timeouts
+      pendingTimeoutsRef.current.forEach(t => clearTimeout(t));
+      pendingTimeoutsRef.current = [];
       clearRoundTimer(); // Clean up timer on unmount
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sessionId]); // Only depend on sessionId, playerName is captured in closure
+  }, [sessionId, reconnectTrigger]); // Reconnect when sessionId changes or reconnection is triggered
 
   // Auto-scroll chat to bottom when new messages arrive
   useEffect(() => {
@@ -142,7 +219,7 @@ const App: React.FC = () => {
     }
   }, [messages]);
 
-  const sendMessage = useCallback((message: any) => {
+  const sendMessage = useCallback((message: WebSocketOutgoingMessage) => {
     if (ws && connected) {
       ws.send(JSON.stringify(message));
     }
@@ -171,21 +248,24 @@ const App: React.FC = () => {
   }, [connected, ws, fetchPublicGames, game]);
 
   const startRoundTimer = useCallback((gameState: Game) => {
-    // Clear any existing timer
+    // Clear any existing timer and pending timeouts
     if (timerInterval) {
       clearInterval(timerInterval);
       setTimerInterval(null);
     }
+    pendingTimeoutsRef.current.forEach(t => clearTimeout(t));
+    pendingTimeoutsRef.current = [];
+    timeUpSentRef.current = false; // Reset for new round
     setRoundTimeLeft(null);
-    
+
     if (gameState.turnStartTime && gameState.timeLimit) {
       const startTime = new Date(gameState.turnStartTime).getTime();
       const now = Date.now();
       const elapsed = Math.floor((now - startTime) / 1000);
       const timeLeft = Math.max(0, gameState.timeLimit - elapsed);
-      
+
       setRoundTimeLeft(timeLeft);
-      
+
       if (timeLeft > 0) {
         const interval = setInterval(() => {
           setRoundTimeLeft(prev => {
@@ -194,43 +274,36 @@ const App: React.FC = () => {
               clearInterval(interval);
               setTimerInterval(null);
               setRoundTimeLeft(0);
-              
-              // Time's up! All players should notify server for redundancy, but server will handle deduplication
-              if (gameState.gameId) {
-                // Send multiple timeUp messages immediately and with delays to ensure delivery
+
+              // Send timeUp only once per round to avoid race condition
+              if (gameState.gameId && !timeUpSentRef.current) {
+                timeUpSentRef.current = true;
                 sendMessage({ action: 'timeUp', gameId: gameState.gameId });
-                sendMessage({ action: 'timeUp', gameId: gameState.gameId });
-                
-                // Send timeUp multiple times with delay to ensure the server gets it
-                setTimeout(() => {
+
+                // Single retry after 1 second in case of network issue (server deduplicates)
+                const retryTimeout = setTimeout(() => {
                   sendMessage({ action: 'timeUp', gameId: gameState.gameId });
-                  sendMessage({ action: 'timeUp', gameId: gameState.gameId });
-                }, 500);
-                setTimeout(() => {
-                  sendMessage({ action: 'timeUp', gameId: gameState.gameId });
-                  sendMessage({ action: 'timeUp', gameId: gameState.gameId });
-                }, 1500);
-                setTimeout(() => {
-                  sendMessage({ action: 'timeUp', gameId: gameState.gameId });
-                  sendMessage({ action: 'timeUp', gameId: gameState.gameId });
-                }, 3000);
+                }, 1000);
+                pendingTimeoutsRef.current.push(retryTimeout);
               }
               return 0;
             }
             return prev - 1;
           });
         }, 1000);
-        
+
         setTimerInterval(interval);
       } else {
         // Time already up when starting timer
         setRoundTimeLeft(0);
-        if (gameState.gameId) {
+        if (gameState.gameId && !timeUpSentRef.current) {
+          timeUpSentRef.current = true;
           sendMessage({ action: 'timeUp', gameId: gameState.gameId });
         }
       }
     }
-  }, [sendMessage, timerInterval]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sendMessage]);
 
   // Heartbeat that includes gameId when in game, or basic heartbeat when not in game
   useEffect(() => {
@@ -286,6 +359,9 @@ const App: React.FC = () => {
       clearInterval(timerInterval);
       setTimerInterval(null);
     }
+    // Clear any pending timeouts
+    pendingTimeoutsRef.current.forEach(t => clearTimeout(t));
+    pendingTimeoutsRef.current = [];
     setRoundTimeLeft(null);
   }, [timerInterval]);
 
@@ -295,7 +371,7 @@ const App: React.FC = () => {
     }
   };
 
-  const handleMessage = (data: any) => {
+  const handleMessage = (data: WebSocketIncomingMessage) => {
     switch (data.action) {
       case 'connected':
         setConnectionId(data.connectionId);
@@ -303,12 +379,14 @@ const App: React.FC = () => {
       case 'gameCreated':
         setGame(data.game);
         setConnectionId(data.game.ownerId);
+        setIsLoading(false);
         console.log('Game created:', data.game);
         window.history.pushState({}, '', `?gameId=${data.game.gameId}`);
         break;
       case 'playerJoined':
         playSound('playerJoined');
         setGame(data.game);
+        setIsLoading(false);
         if (data.game.gameState === 'IN_PROGRESS') {
           startRoundTimer(data.game);
         }
@@ -328,12 +406,13 @@ const App: React.FC = () => {
       case 'gameStarted':
         playSound('gameStart');
         setGame(data.game);
+        setIsLoading(false);
         setEmojis([]); // Clear emojis from previous rounds
         setMessages([
-          { 
-            text: `🎮 Game started! Round ${data.game.currentRound} begins.`, 
-            type: 'system', 
-            timestamp: Date.now() 
+          {
+            text: `🎮 Game started! Round ${data.game.currentRound} begins.`,
+            type: 'system',
+            timestamp: Date.now()
           }
         ]); // Clear messages and add start message
         console.log('Game started:', data.game);
@@ -512,7 +591,8 @@ const App: React.FC = () => {
         }]);
         break;
       case 'error':
-        alert(`Error: ${data.message}`);
+        setErrorMessage(data.message || 'An error occurred');
+        setIsLoading(false);
         break;
       case 'heartbeatAck':
         // Heartbeat acknowledged, connection is alive
@@ -538,27 +618,30 @@ const App: React.FC = () => {
 
   const createGame = () => {
     playSound('buttonClick');
+    setIsLoading(true);
     sendMessage({ action: 'createGame', sessionId, playerName: playerName || undefined, timeLimit, maxRounds, isPublic });
   };
 
   const startGame = () => {
     playSound('buttonClick');
+    setIsLoading(true);
     if (game) sendMessage({ action: 'startGame', gameId: game.gameId, sessionId, timeLimit, maxRounds });
   };
 
   const joinGameById = (id?: string) => {
     playSound('buttonClick');
+    setIsLoading(true);
     const gameToJoin = id || gameIdInput;
     if (gameToJoin) {
-      sendMessage({ action: 'joinGame', gameId: gameToJoin, sessionId, playerName: playerName || undefined });
+      const sanitizedName = playerName ? sanitizePlayerName(playerName) : undefined;
+      sendMessage({ action: 'joinGame', gameId: gameToJoin, sessionId, playerName: sanitizedName });
       setGameIdInput('');
     }
   };
 
   const updatePlayerName = (newName: string) => {
-    // Ensure name is not empty and at least 1 character
-    const trimmedName = newName.trim();
-    if (!trimmedName || trimmedName.length === 0) {
+    const sanitizedName = sanitizePlayerName(newName);
+    if (!isValidPlayerName(sanitizedName)) {
       // Reset to the current player's name from the game state
       if (game) {
         const currentPlayer = game.players.find(p => isCurrentPlayer(p));
@@ -567,19 +650,20 @@ const App: React.FC = () => {
         }
       }
       setEditingName(false);
+      setErrorMessage('Name must be 1-20 characters');
       return;
     }
-    
-    setPlayerName(trimmedName);
-    localStorage.setItem('emoji-guesser-player-name', trimmedName);
+
+    setPlayerName(sanitizedName);
+    localStorage.setItem('emoji-guesser-player-name', sanitizedName);
     if (game) {
-      sendMessage({ action: 'updatePlayerName', gameId: game.gameId, name: trimmedName, sessionId });
+      sendMessage({ action: 'updatePlayerName', gameId: game.gameId, name: sanitizedName, sessionId });
     }
     setEditingName(false);
   };
 
   // Helper function to check if a player is the current user
-  const isCurrentPlayer = (player: any) => {
+  const isCurrentPlayer = (player: Player) => {
     return player.connectionId === connectionId || 
            (sessionId && player.sessionId === sessionId);
   };
@@ -613,10 +697,20 @@ const App: React.FC = () => {
 
   const handleGuessSubmit = (e: FormEvent) => {
     e.preventDefault();
-    if (game && guess) {
-      sendMessage({ action: 'submitGuess', gameId: game.gameId, guess });
-      setGuess('');
+    if (!game || !guess) return;
+
+    // Rate limiting: 500ms between guesses
+    const now = Date.now();
+    if (now - lastGuessTime < 500) {
+      return;
     }
+
+    const sanitizedGuess = sanitizeGuess(guess);
+    if (!sanitizedGuess) return;
+
+    setLastGuessTime(now);
+    sendMessage({ action: 'submitGuess', gameId: game.gameId, guess: sanitizedGuess });
+    setGuess('');
   };
 
   const chooseWord = (selectedWord: string) => {
@@ -654,7 +748,30 @@ const App: React.FC = () => {
         Status: <span className={connected ? 'connected' : 'disconnected'}>
           {connected ? '🟢 Connected' : '🔴 Disconnected'}
         </span>
+        {!connected && reconnectAttemptsRef.current < maxReconnectAttempts && (
+          <span className="reconnecting"> (Reconnecting...)</span>
+        )}
+        {!connected && reconnectAttemptsRef.current >= maxReconnectAttempts && (
+          <button
+            onClick={() => {
+              reconnectAttemptsRef.current = 0;
+              setReconnectTrigger(t => t + 1);
+            }}
+            className="reconnect-btn"
+          >
+            🔄 Reconnect
+          </button>
+        )}
       </div>
+
+      {errorMessage && (
+        <div className="error-notification" role="alert">
+          <span>⚠️ {errorMessage}</span>
+          <button onClick={() => setErrorMessage(null)} className="dismiss-error" aria-label="Dismiss error">
+            ✕
+          </button>
+        </div>
+      )}
 
       {!game && (
         <div className="lobby">
@@ -669,8 +786,8 @@ const App: React.FC = () => {
                 Public Game
               </label>
             </div>
-            <button onClick={createGame} disabled={!connected} className="create-game-btn">
-              Create New Game
+            <button onClick={createGame} disabled={!connected || isLoading} className="create-game-btn">
+              {isLoading ? '⏳ Creating...' : 'Create New Game'}
             </button>
             <div className="join-game-section">
               <input
@@ -680,8 +797,8 @@ const App: React.FC = () => {
                 onChange={(e) => setGameIdInput(e.target.value)}
                 className="game-id-input"
               />
-              <button onClick={() => joinGameById()} disabled={!connected || !gameIdInput} className="join-game-btn">
-                Join Game
+              <button onClick={() => joinGameById()} disabled={!connected || !gameIdInput || isLoading} className="join-game-btn">
+                {isLoading ? '⏳ Joining...' : 'Join Game'}
               </button>
             </div>
           </div>
@@ -732,12 +849,12 @@ const App: React.FC = () => {
                           )}
                         </td>
                         <td className="action-cell">
-                          <button 
+                          <button
                             onClick={() => joinGameById(publicGame.gameId)}
                             className="join-table-btn"
-                            disabled={!connected}
+                            disabled={!connected || isLoading}
                           >
-                            🚀 Join
+                            {isLoading ? '⏳' : '🚀 Join'}
                           </button>
                         </td>
                       </tr>
@@ -898,14 +1015,16 @@ const App: React.FC = () => {
           </div>
           
           {isGameOwner() && game.players.filter((p: Player) => p.wantsToPlayAgain !== false).length > 1 && (
-            <button 
-              onClick={startGame} 
-              disabled={game.players.filter((p: Player) => p.wantsToPlayAgain !== false).length < 2}
+            <button
+              onClick={startGame}
+              disabled={game.players.filter((p: Player) => p.wantsToPlayAgain !== false).length < 2 || isLoading}
               className="start-game-btn"
             >
-              {game.players.filter((p: Player) => p.wantsToPlayAgain !== false).length < 2 
-                ? 'Need at least 2 players' 
-                : 'Start Game 🚀'}
+              {isLoading
+                ? '⏳ Starting...'
+                : game.players.filter((p: Player) => p.wantsToPlayAgain !== false).length < 2
+                  ? 'Need at least 2 players'
+                  : 'Start Game 🚀'}
             </button>
           )}
         </div>
