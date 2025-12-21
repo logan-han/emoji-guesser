@@ -104,27 +104,21 @@ The Android app has its own GitHub Actions workflow (`.github/workflows/android.
 2.  **Builds APK/AAB:** Creates both debug and release artifacts.
 3.  **Publishes to Play Store:** Automatically uploads to the internal testing track on main branch pushes.
 
-### Required Secrets for Android CI/CD
+### Android CI/CD Configuration
 
-Set these secrets in your GitHub repository:
+The Android app is configured for fully automated builds:
+
+- **Keystore**: Auto-generated during CI using `generate-keystore.sh`
+- **Signing credentials**: Stored in `keystore.properties` (committed to private repo)
+- **WebSocket URL**: Automatically fetched from backend deployment
+
+**Optional secret for Play Store publishing:**
 
 | Secret | Description |
 |--------|-------------|
-| `ANDROID_KEYSTORE_BASE64` | Base64-encoded release keystore file |
-| `ANDROID_KEYSTORE_PASSWORD` | Keystore password |
-| `ANDROID_KEY_ALIAS` | Key alias in the keystore |
-| `ANDROID_KEY_PASSWORD` | Key password |
-| `PLAY_STORE_SERVICE_ACCOUNT_JSON` | Google Play service account JSON for publishing |
-| `WS_URL` | WebSocket URL for the backend |
+| `PLAY_STORE_SERVICE_ACCOUNT_JSON` | Google Play service account JSON (optional) |
 
-### Generating a Keystore
-
-```bash
-keytool -genkey -v -keystore release-key.jks -keyalg RSA -keysize 2048 -validity 10000 -alias emoji-guesser
-
-# Convert to base64 for GitHub secrets
-base64 -i release-key.jks -o release-key.txt
-```
+The Play Store upload step only runs if this secret is configured.
 
 ## 🚢 Deployment
 
