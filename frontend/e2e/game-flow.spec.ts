@@ -84,7 +84,7 @@ test.describe('Game Creation Flow', () => {
 
     // Should show game lobby
     await expect(page.getByRole('heading', { name: /Game Lobby/i })).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText('ABC123')).toBeVisible();
+    await expect(page.getByText('ABC123', { exact: true })).toBeVisible();
     await expect(page.getByText(/Invite Link/)).toBeVisible();
   });
 

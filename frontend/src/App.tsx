@@ -729,6 +729,7 @@ const App: React.FC = () => {
 
   const backToLobby = () => {
     setGame(null);
+    setIsLoading(false);
     setIsDescriber(false);
     setIsChoosingWord(false);
     setSecretWord('');
