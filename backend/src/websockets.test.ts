@@ -12,27 +12,35 @@ jest.mock('./dictionary', () => ({
   generateHint: jest.fn().mockReturnValue('_ _ _ _ _'),
 }));
 
-const mockPut = jest.fn().mockReturnValue({ promise: jest.fn().mockResolvedValue({}) });
-const mockUpdate = jest.fn().mockReturnValue({ promise: jest.fn().mockResolvedValue({}) });
-const mockGet = jest.fn().mockReturnValue({ promise: jest.fn().mockResolvedValue({}) });
-const mockDelete = jest.fn().mockReturnValue({ promise: jest.fn().mockResolvedValue({}) });
-const mockScan = jest.fn().mockReturnValue({ promise: jest.fn().mockResolvedValue({ Items: [] }) });
-const mockPostToConnection = jest.fn().mockReturnValue({ promise: jest.fn().mockResolvedValue({}) });
+// DynamoDB mocks
+const mockDdbSend = jest.fn().mockResolvedValue({});
+const mockGetCommand = jest.fn().mockImplementation((input) => ({ input }));
+const mockPutCommand = jest.fn().mockImplementation((input) => ({ input }));
+const mockUpdateCommand = jest.fn().mockImplementation((input) => ({ input }));
+const mockDeleteCommand = jest.fn().mockImplementation((input) => ({ input }));
+const mockScanCommand = jest.fn().mockImplementation((input) => ({ input }));
 
-// Mock AWS SDK
-jest.mock('aws-sdk', () => ({
-  DynamoDB: {
-    DocumentClient: jest.fn(() => ({
-      get: mockGet,
-      put: mockPut,
-      update: mockUpdate,
-      delete: mockDelete,
-      scan: mockScan,
-    }))
-  },
-  ApiGatewayManagementApi: jest.fn(() => ({
-    postToConnection: mockPostToConnection,
-  }))
+// ApiGateway mocks
+const mockApgSend = jest.fn().mockResolvedValue({});
+const mockPostToConnectionCommand = jest.fn().mockImplementation((input) => ({ input }));
+
+// Mock AWS SDK v3
+jest.mock('@aws-sdk/client-dynamodb', () => ({
+  DynamoDBClient: jest.fn().mockImplementation(() => ({})),
+}));
+
+jest.mock('@aws-sdk/lib-dynamodb', () => ({
+  DynamoDBDocumentClient: { from: jest.fn().mockReturnValue({ send: mockDdbSend }) },
+  GetCommand: mockGetCommand,
+  PutCommand: mockPutCommand,
+  UpdateCommand: mockUpdateCommand,
+  DeleteCommand: mockDeleteCommand,
+  ScanCommand: mockScanCommand,
+}));
+
+jest.mock('@aws-sdk/client-apigatewaymanagementapi', () => ({
+  ApiGatewayManagementApiClient: jest.fn().mockImplementation(() => ({ send: mockApgSend })),
+  PostToConnectionCommand: mockPostToConnectionCommand,
 }));
 
 import { APIGatewayEvent } from 'aws-lambda';
@@ -53,6 +61,14 @@ describe('WebSocket Handler Tests', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     process.env.GAMES_TABLE = 'test-games-table';
+    mockDdbSend.mockResolvedValue({});
+    mockApgSend.mockResolvedValue({});
+    mockGetCommand.mockImplementation((input) => ({ input }));
+    mockPutCommand.mockImplementation((input) => ({ input }));
+    mockUpdateCommand.mockImplementation((input) => ({ input }));
+    mockDeleteCommand.mockImplementation((input) => ({ input }));
+    mockScanCommand.mockImplementation((input) => ({ input }));
+    mockPostToConnectionCommand.mockImplementation((input) => ({ input }));
   });
 
   describe('Connect Handler', () => {
@@ -63,7 +79,7 @@ describe('WebSocket Handler Tests', () => {
         statusCode: 200,
         body: 'Connected'
       });
-      expect(mockPostToConnection).toHaveBeenCalledWith({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith({
         ConnectionId: 'test-connection-123',
         Data: JSON.stringify({ action: 'connected', connectionId: 'test-connection-123' })
       });
@@ -80,7 +96,7 @@ describe('WebSocket Handler Tests', () => {
           { connectionId: 'test-connection-456', name: 'Player 2' },
         ]
       };
-      mockScan.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Items: [game] }) });
+      mockDdbSend.mockResolvedValueOnce({ Items: [game] });
 
       const result = await disconnect(mockEvent as APIGatewayEvent, {} as any, {} as any);
 
@@ -88,8 +104,8 @@ describe('WebSocket Handler Tests', () => {
         statusCode: 200,
         body: 'Disconnected'
       });
-      expect(mockScan).toHaveBeenCalled();
-      expect(mockUpdate).toHaveBeenCalledWith({
+      expect(mockScanCommand).toHaveBeenCalled();
+      expect(mockUpdateCommand).toHaveBeenCalledWith({
         TableName: 'test-games-table',
         Key: { gameId: 'game-1' },
         UpdateExpression: 'set players = :p, ownerId = :o',
@@ -112,12 +128,12 @@ describe('WebSocket Handler Tests', () => {
         gameState: 'IN_PROGRESS',
         currentDescriberIndex: 0
       };
-      mockScan.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Items: [game] }) });
+      mockDdbSend.mockResolvedValueOnce({ Items: [game] });
 
       await disconnect(mockEvent as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockUpdate).toHaveBeenCalled();
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockUpdateCommand).toHaveBeenCalled();
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('playerLeft')
       }));
     });
@@ -130,11 +146,11 @@ describe('WebSocket Handler Tests', () => {
           { connectionId: 'test-connection-123', name: 'Player 1', lastSeen: new Date().toISOString() },
         ],
       };
-      mockScan.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Items: [game] }) });
+      mockDdbSend.mockResolvedValueOnce({ Items: [game] });
 
       await disconnect(mockEvent as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockDelete).toHaveBeenCalledWith({ TableName: 'test-games-table', Key: { gameId: 'game-1' } });
+      expect(mockDeleteCommand).toHaveBeenCalledWith({ TableName: 'test-games-table', Key: { gameId: 'game-1' } });
     });
 
     test('handles non-describer disconnection in an active game', async () => {
@@ -149,7 +165,7 @@ describe('WebSocket Handler Tests', () => {
         gameState: 'IN_PROGRESS',
         currentDescriberIndex: 0
       };
-      mockScan.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Items: [game] }) });
+      mockDdbSend.mockResolvedValueOnce({ Items: [game] });
 
       const event = {
         ...mockEvent,
@@ -158,8 +174,8 @@ describe('WebSocket Handler Tests', () => {
 
       await disconnect(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockUpdate).toHaveBeenCalled();
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockUpdateCommand).toHaveBeenCalled();
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('playerLeft')
       }));
     });
@@ -175,16 +191,16 @@ describe('WebSocket Handler Tests', () => {
           gameState: 'IN_PROGRESS',
           currentDescriberIndex: 0
         };
-        mockScan.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Items: [game] }) });
-  
+        mockDdbSend.mockResolvedValueOnce({ Items: [game] });
+
         await disconnect(mockEvent as APIGatewayEvent, {} as any, {} as any);
-  
-        expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({
+
+        expect(mockUpdateCommand).toHaveBeenCalledWith(expect.objectContaining({
           ExpressionAttributeValues: expect.objectContaining({
             ':s': 'ENDED'
           })
         }));
-        expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+        expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
           Data: expect.stringContaining('gameEnded')
         }));
       });
@@ -206,12 +222,12 @@ describe('WebSocket Handler Tests', () => {
         statusCode: 200,
         body: 'Message handled.'
       });
-      expect(mockPut).toHaveBeenCalled();
-      expect(mockPostToConnection).toHaveBeenCalled();
+      expect(mockPutCommand).toHaveBeenCalled();
+      expect(mockPostToConnectionCommand).toHaveBeenCalled();
     });
 
     test('handles createGame failure', async () => {
-      mockPut.mockReturnValueOnce({ promise: jest.fn().mockRejectedValue(new Error('DynamoDB error')) });
+      mockDdbSend.mockRejectedValueOnce(new Error('DynamoDB error'));
 
       const createGameEvent = {
         ...mockEvent,
@@ -223,7 +239,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(createGameEvent as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith({
         ConnectionId: 'test-connection-123',
         Data: JSON.stringify({ action: 'error', message: 'Could not create game.' })
       });
@@ -236,7 +252,7 @@ describe('WebSocket Handler Tests', () => {
         players: [{ connectionId: 'owner-123', name: 'Owner' }],
         gameState: 'WAITING'
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: existingGame }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: existingGame });
 
       const joinGameEvent = {
         ...mockEvent,
@@ -253,7 +269,7 @@ describe('WebSocket Handler Tests', () => {
         statusCode: 200,
         body: 'Message handled.'
       });
-      expect(mockGet).toHaveBeenCalled();
+      expect(mockGetCommand).toHaveBeenCalled();
     });
 
     test('handles player rejoining a waiting game', async () => {
@@ -263,7 +279,7 @@ describe('WebSocket Handler Tests', () => {
         players: [{ connectionId: 'owner-123', name: 'Owner', sessionId: 'session-1' }],
         gameState: 'WAITING'
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: existingGame }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: existingGame });
 
       const joinGameEvent = {
         ...mockEvent,
@@ -277,14 +293,14 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(joinGameEvent as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockUpdate).toHaveBeenCalled();
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockUpdateCommand).toHaveBeenCalled();
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('playerJoined')
       }));
     });
 
     test('handles joinGame with non-existent game', async () => {
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({}) });
+      mockDdbSend.mockResolvedValueOnce({});
 
       const joinGameEvent = {
         ...mockEvent,
@@ -301,7 +317,7 @@ describe('WebSocket Handler Tests', () => {
         statusCode: 200,
         body: 'Message handled.'
       });
-      expect(mockPostToConnection).toHaveBeenCalledWith({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith({
         ConnectionId: 'test-connection-123',
         Data: JSON.stringify({ action: 'error', message: 'Game not found.' })
       });
@@ -314,7 +330,7 @@ describe('WebSocket Handler Tests', () => {
         players: [{ connectionId: 'owner-123', name: 'Owner', lastSeen: new Date().toISOString() }],
         gameState: 'IN_PROGRESS'
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: existingGame }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: existingGame });
 
       const joinGameEvent = {
         ...mockEvent,
@@ -327,8 +343,8 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(joinGameEvent as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockUpdate).toHaveBeenCalled();
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockUpdateCommand).toHaveBeenCalled();
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('spectatorJoined')
       }));
     });
@@ -347,7 +363,7 @@ describe('WebSocket Handler Tests', () => {
         secretWord: 'apple',
         currentHint: '_ _ _ _ _'
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: existingGame }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: existingGame });
 
       const joinGameEvent = {
         ...mockEvent,
@@ -362,18 +378,18 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(joinGameEvent as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockUpdate).toHaveBeenCalled();
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockUpdateCommand).toHaveBeenCalled();
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('playerReconnected')
       }));
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         ConnectionId: 'new-connection-id',
         Data: expect.stringContaining('hintUpdated')
       }));
     });
 
     test('handles joinGame failure', async () => {
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockRejectedValue(new Error('DynamoDB error')) });
+      mockDdbSend.mockRejectedValueOnce(new Error('DynamoDB error'));
 
       const joinGameEvent = {
         ...mockEvent,
@@ -386,7 +402,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(joinGameEvent as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith({
         ConnectionId: 'test-connection-123',
         Data: JSON.stringify({ action: 'error', message: 'Could not join game.' })
       });
@@ -410,7 +426,7 @@ describe('WebSocket Handler Tests', () => {
     });
 
     test('should handle heartbeat failure', async () => {
-      mockScan.mockReturnValueOnce({ promise: jest.fn().mockRejectedValue(new Error('DynamoDB error')) });
+      mockDdbSend.mockRejectedValueOnce(new Error('DynamoDB error'));
 
       const heartbeatEvent = {
         ...mockEvent,
@@ -430,7 +446,7 @@ describe('WebSocket Handler Tests', () => {
           { connectionId: 'test-connection-123', name: 'Player 1', lastSeen: new Date().toISOString() },
         ],
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -440,7 +456,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('Player not found in game.')
       }));
     });
@@ -452,8 +468,8 @@ describe('WebSocket Handler Tests', () => {
           { connectionId: 'test-connection-123', name: 'Player 1', lastSeen: new Date().toISOString() },
         ],
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
-      mockUpdate.mockReturnValueOnce({ promise: jest.fn().mockRejectedValue(new Error('DynamoDB error')) });
+      mockDdbSend.mockResolvedValueOnce({ Item: game });
+      mockDdbSend.mockRejectedValueOnce(new Error('DynamoDB error'));
 
       const event = {
         ...mockEvent,
@@ -462,13 +478,13 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('Could not update name.')
       }));
     });
 
     test('should handle timeUp for non-existent game', async () => {
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({}) });
+      mockDdbSend.mockResolvedValueOnce({});
 
       const event = {
         ...mockEvent,
@@ -477,7 +493,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).not.toHaveBeenCalled();
+      expect(mockPostToConnectionCommand).not.toHaveBeenCalled();
     });
 
     test('should not end round if not in DESCRIBING state', async () => {
@@ -485,7 +501,7 @@ describe('WebSocket Handler Tests', () => {
         gameId: 'game-1',
         turnState: 'WAITING'
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -494,7 +510,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockUpdate).not.toHaveBeenCalled();
+      expect(mockUpdateCommand).not.toHaveBeenCalled();
     });
 
     test('should not allow non-owner to restart game', async () => {
@@ -506,7 +522,7 @@ describe('WebSocket Handler Tests', () => {
         ],
         gameState: 'ENDED'
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -515,7 +531,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('gameRestarted')
       }));
     });
@@ -529,7 +545,7 @@ describe('WebSocket Handler Tests', () => {
         ],
         gameState: 'IN_PROGRESS'
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -538,7 +554,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('Can only restart ended games.')
       }));
     });
@@ -552,8 +568,8 @@ describe('WebSocket Handler Tests', () => {
         ],
         gameState: 'ENDED'
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
-      mockUpdate.mockReturnValueOnce({ promise: jest.fn().mockRejectedValue(new Error('DynamoDB error')) });
+      mockDdbSend.mockResolvedValueOnce({ Item: game });
+      mockDdbSend.mockRejectedValueOnce(new Error('DynamoDB error'));
 
       const event = {
         ...mockEvent,
@@ -562,7 +578,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('Could not restart game.')
       }));
     });
@@ -614,13 +630,13 @@ describe('WebSocket Handler Tests', () => {
         { gameId: 'game-1', isPublic: true, gameState: 'WAITING' },
         { gameId: 'game-2', isPublic: true, gameState: 'WAITING' },
       ];
-      mockScan.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Items: games }) });
+      mockDdbSend.mockResolvedValueOnce({ Items: games });
 
       const result = await listPublicGames(mockEvent as APIGatewayEvent, {} as any, {} as any) as { statusCode: number, body: string };
 
       expect(result.statusCode).toBe(200);
       expect(JSON.parse(result.body)).toEqual(games);
-      expect(mockScan).toHaveBeenCalledWith({
+      expect(mockScanCommand).toHaveBeenCalledWith({
         TableName: 'test-games-table',
         FilterExpression: 'isPublic = :true and gameState = :waiting',
         ExpressionAttributeValues: {
@@ -631,7 +647,7 @@ describe('WebSocket Handler Tests', () => {
     });
 
     test('should handle errors when listing public games', async () => {
-      mockScan.mockReturnValueOnce({ promise: jest.fn().mockRejectedValue(new Error('DynamoDB error')) });
+      mockDdbSend.mockRejectedValueOnce(new Error('DynamoDB error'));
 
       const result = await listPublicGames(mockEvent as APIGatewayEvent, {} as any, {} as any) as { statusCode: number, body: string };
 
@@ -650,7 +666,7 @@ describe('WebSocket Handler Tests', () => {
         ],
         spectators: [{ connectionId: 'spectator-1' }]
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -659,23 +675,23 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledTimes(3);
-      expect(mockPostToConnection).toHaveBeenCalledWith({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledTimes(3);
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith({
         ConnectionId: 'test-connection-123',
         Data: JSON.stringify({ action: 'newEmoji', emoji: '👍' })
       });
-      expect(mockPostToConnection).toHaveBeenCalledWith({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith({
         ConnectionId: 'test-connection-456',
         Data: JSON.stringify({ action: 'newEmoji', emoji: '👍' })
       });
-      expect(mockPostToConnection).toHaveBeenCalledWith({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith({
         ConnectionId: 'spectator-1',
         Data: JSON.stringify({ action: 'newEmoji', emoji: '👍' })
       });
     });
 
     test('should handle submitEmoji failure', async () => {
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockRejectedValue(new Error('DynamoDB error')) });
+      mockDdbSend.mockRejectedValueOnce(new Error('DynamoDB error'));
 
       const event = {
         ...mockEvent,
@@ -697,7 +713,7 @@ describe('WebSocket Handler Tests', () => {
         ],
         gameState: 'WAITING'
       };
-      mockUpdate.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Attributes: game }) });
+      mockDdbSend.mockResolvedValueOnce({ Attributes: game });
 
       const event = {
         ...mockEvent,
@@ -706,8 +722,8 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockUpdate).toHaveBeenCalledTimes(2);
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockUpdateCommand).toHaveBeenCalledTimes(2);
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('gameStarted')
       }));
     });
@@ -722,7 +738,7 @@ describe('WebSocket Handler Tests', () => {
         ],
         gameState: 'WAITING'
       };
-      mockUpdate.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Attributes: game }) });
+      mockDdbSend.mockResolvedValueOnce({ Attributes: game });
 
       const event = {
         ...mockEvent,
@@ -731,8 +747,8 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockUpdate).toHaveBeenCalledTimes(1);
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockUpdateCommand).toHaveBeenCalledTimes(1);
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('Only the owner can start the game')
       }));
     });
@@ -746,7 +762,7 @@ describe('WebSocket Handler Tests', () => {
         ],
         gameState: 'WAITING'
       };
-      mockUpdate.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Attributes: game }) });
+      mockDdbSend.mockResolvedValueOnce({ Attributes: game });
 
       const event = {
         ...mockEvent,
@@ -755,14 +771,14 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockUpdate).toHaveBeenCalledTimes(1);
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockUpdateCommand).toHaveBeenCalledTimes(1);
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('You need at least 2 ready players to start')
       }));
     });
 
     test('should handle startGame failure', async () => {
-      mockUpdate.mockReturnValueOnce({ promise: jest.fn().mockRejectedValue(new Error('DynamoDB error')) });
+      mockDdbSend.mockRejectedValueOnce(new Error('DynamoDB error'));
 
       const event = {
         ...mockEvent,
@@ -771,7 +787,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('Could not start game.')
       }));
     });
@@ -790,7 +806,7 @@ describe('WebSocket Handler Tests', () => {
         currentDescriberIndex: 0,
         wordOptions: ['apple', 'banana', 'orange']
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -799,10 +815,10 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockUpdateCommand).toHaveBeenCalledWith(expect.objectContaining({
         ExpressionAttributeValues: expect.objectContaining({ ':w': 'apple' })
       }));
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('describeWord')
       }));
     });
@@ -819,7 +835,7 @@ describe('WebSocket Handler Tests', () => {
         currentDescriberIndex: 0,
         wordOptions: ['apple', 'banana', 'orange']
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -828,8 +844,8 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockUpdate).not.toHaveBeenCalled();
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockUpdateCommand).not.toHaveBeenCalled();
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('Invalid word choice')
       }));
     });
@@ -846,8 +862,8 @@ describe('WebSocket Handler Tests', () => {
         currentDescriberIndex: 0,
         wordOptions: ['apple', 'banana', 'orange']
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
-      mockUpdate.mockReturnValueOnce({ promise: jest.fn().mockRejectedValue(new Error('DynamoDB error')) });
+      mockDdbSend.mockResolvedValueOnce({ Item: game });
+      mockDdbSend.mockRejectedValueOnce(new Error('DynamoDB error'));
 
       const event = {
         ...mockEvent,
@@ -856,7 +872,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('Could not choose word.')
       }));
     });
@@ -874,7 +890,7 @@ describe('WebSocket Handler Tests', () => {
         maxRounds: 2,
         currentRound: 1
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -884,7 +900,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('wordGuessed')
       }));
     });
@@ -899,7 +915,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('Unknown action: invalidAction')
       }));
     });
@@ -912,7 +928,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('gameId is required for joinGame action.')
       }));
     });
@@ -925,7 +941,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('gameId and word are required for chooseWord action.')
       }));
     });
@@ -938,7 +954,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('gameId and guess are required for submitGuess action.')
       }));
     });
@@ -951,7 +967,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('gameId and emoji are required for submitEmoji action.')
       }));
     });
@@ -964,7 +980,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('gameId is required for timeUp action.')
       }));
     });
@@ -977,7 +993,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('gameId is required for restartGame action.')
       }));
     });
@@ -990,7 +1006,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('gameId and name are required for updatePlayerName action.')
       }));
     });
@@ -999,7 +1015,7 @@ describe('WebSocket Handler Tests', () => {
   describe('Coverage Specific Tests', () => {
     test('should handle stale connection on sendMessageToClient', async () => {
         const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-        mockPostToConnection.mockReturnValueOnce({ promise: jest.fn().mockRejectedValue({ statusCode: 410 }) });
+        mockApgSend.mockRejectedValueOnce({ statusCode: 410 });
 
         const event = {
           ...mockEvent,
@@ -1025,7 +1041,7 @@ describe('WebSocket Handler Tests', () => {
           ],
           gameState: 'WAITING'
         };
-        mockUpdate.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Attributes: game }) });
+        mockDdbSend.mockResolvedValueOnce({ Attributes: game });
 
         const event = {
           ...mockEvent,
@@ -1034,7 +1050,7 @@ describe('WebSocket Handler Tests', () => {
 
         await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-        expect(mockUpdate).toHaveBeenCalledTimes(2);
+        expect(mockUpdateCommand).toHaveBeenCalledTimes(2);
       });
 
       test('should update hint and handle premature timeUp', async () => {
@@ -1051,7 +1067,7 @@ describe('WebSocket Handler Tests', () => {
             timeLimit: 60,
             turnStartTime: new Date(Date.now() - 58 * 1000).toISOString(), // 2 seconds left
           };
-          mockGet.mockReturnValue({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+          mockDdbSend.mockResolvedValue({ Item: game });
 
           const event = {
             ...mockEvent,
@@ -1060,7 +1076,7 @@ describe('WebSocket Handler Tests', () => {
 
           await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-          expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+          expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
             Data: expect.stringContaining('timeUp')
           }));
       });
@@ -1078,7 +1094,7 @@ describe('WebSocket Handler Tests', () => {
         currentDescriberIndex: 0, // test-connection-123 is describer
         turnStartTime: new Date().toISOString()
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -1088,7 +1104,7 @@ describe('WebSocket Handler Tests', () => {
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
       // Should not broadcast word guessed because describer tried to guess
-      expect(mockPostToConnection).not.toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).not.toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('wordGuessed')
       }));
     });
@@ -1104,7 +1120,7 @@ describe('WebSocket Handler Tests', () => {
         currentDescriberIndex: 1, // test-connection-456 is describer
         turnStartTime: new Date().toISOString()
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -1113,7 +1129,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('newGuess')
       }));
     });
@@ -1127,7 +1143,7 @@ describe('WebSocket Handler Tests', () => {
         secretWord: 'apple',
         currentDescriberIndex: 0
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -1137,7 +1153,7 @@ describe('WebSocket Handler Tests', () => {
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
       // Should not broadcast anything since player is not in game
-      expect(mockPostToConnection).not.toHaveBeenCalled();
+      expect(mockPostToConnectionCommand).not.toHaveBeenCalled();
     });
   });
 
@@ -1149,7 +1165,7 @@ describe('WebSocket Handler Tests', () => {
           { connectionId: 'other-connection', name: 'Player 1', sessionId: 'test-session-123', lastSeen: new Date().toISOString() },
         ]
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -1159,14 +1175,14 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockUpdate).toHaveBeenCalled();
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockUpdateCommand).toHaveBeenCalled();
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('playerNameUpdated')
       }));
     });
 
     test('should handle non-existent game', async () => {
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({}) });
+      mockDdbSend.mockResolvedValueOnce({});
 
       const event = {
         ...mockEvent,
@@ -1175,7 +1191,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('Game not found')
       }));
     });
@@ -1190,7 +1206,7 @@ describe('WebSocket Handler Tests', () => {
         ],
         gameState: 'WAITING'
       };
-      mockScan.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Items: [game] }) });
+      mockDdbSend.mockResolvedValueOnce({ Items: [game] });
 
       const event = {
         ...mockEvent,
@@ -1199,8 +1215,8 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockUpdate).toHaveBeenCalled();
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockUpdateCommand).toHaveBeenCalled();
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('heartbeatAck')
       }));
     });
@@ -1213,7 +1229,7 @@ describe('WebSocket Handler Tests', () => {
         ],
         gameState: 'WAITING'
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -1222,7 +1238,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockGet).toHaveBeenCalledWith({ TableName: 'test-games-table', Key: { gameId: 'game-1' } });
+      expect(mockGetCommand).toHaveBeenCalledWith({ TableName: 'test-games-table', Key: { gameId: 'game-1' } });
     });
   });
 
@@ -1238,7 +1254,7 @@ describe('WebSocket Handler Tests', () => {
         ],
         gameState: 'ENDED'
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -1247,8 +1263,8 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockUpdate).toHaveBeenCalled();
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockUpdateCommand).toHaveBeenCalled();
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('gameRestarted')
       }));
     });
@@ -1262,7 +1278,7 @@ describe('WebSocket Handler Tests', () => {
         ],
         gameState: 'ENDED'
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -1271,7 +1287,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('You were not in this game')
       }));
     });
@@ -1285,7 +1301,7 @@ describe('WebSocket Handler Tests', () => {
         ],
         gameState: 'WAITING'
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -1294,13 +1310,13 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('Only the owner can restart')
       }));
     });
 
     test('should handle non-existent game', async () => {
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({}) });
+      mockDdbSend.mockResolvedValueOnce({});
 
       const event = {
         ...mockEvent,
@@ -1309,7 +1325,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('Game not found')
       }));
     });
@@ -1327,7 +1343,7 @@ describe('WebSocket Handler Tests', () => {
         ],
         gameState: 'ENDED'
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -1336,7 +1352,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockUpdateCommand).toHaveBeenCalledWith(expect.objectContaining({
         ExpressionAttributeValues: expect.objectContaining({
           ':p': expect.arrayContaining([
             expect.objectContaining({ name: 'Owner' }),
@@ -1356,7 +1372,7 @@ describe('WebSocket Handler Tests', () => {
         players: [{ connectionId: 'old-connection', name: 'Owner', sessionId: 'session-1' }],
         gameState: 'WAITING'
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: existingGame }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: existingGame });
 
       const joinGameEvent = {
         ...mockEvent,
@@ -1371,7 +1387,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(joinGameEvent as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockUpdateCommand).toHaveBeenCalledWith(expect.objectContaining({
         ExpressionAttributeValues: expect.objectContaining({
           ':o': 'new-connection'
         })
@@ -1392,7 +1408,7 @@ describe('WebSocket Handler Tests', () => {
         secretWord: 'apple',
         currentHint: 'A _ _ _ _'
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: existingGame }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: existingGame });
 
       const joinGameEvent = {
         ...mockEvent,
@@ -1406,7 +1422,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(joinGameEvent as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         ConnectionId: 'new-connection-for-p2',
         Data: expect.stringContaining('hintUpdated')
       }));
@@ -1426,7 +1442,7 @@ describe('WebSocket Handler Tests', () => {
         turnState: 'CHOOSING_WORD',
         wordOptions: ['apple', 'banana', 'orange']
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: existingGame }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: existingGame });
 
       const joinGameEvent = {
         ...mockEvent,
@@ -1440,7 +1456,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(joinGameEvent as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         ConnectionId: 'new-connection',
         Data: expect.stringContaining('chooseWord')
       }));
@@ -1460,7 +1476,7 @@ describe('WebSocket Handler Tests', () => {
         turnState: 'DESCRIBING',
         secretWord: 'elephant'
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: existingGame }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: existingGame });
 
       const joinGameEvent = {
         ...mockEvent,
@@ -1474,7 +1490,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(joinGameEvent as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         ConnectionId: 'new-connection',
         Data: expect.stringContaining('describeWord')
       }));
@@ -1489,7 +1505,7 @@ describe('WebSocket Handler Tests', () => {
         secretWord: 'apple',
         turnStartTime: new Date().toISOString()
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -1498,7 +1514,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockUpdate).not.toHaveBeenCalled();
+      expect(mockUpdateCommand).not.toHaveBeenCalled();
     });
 
     test('should not update hint when no secret word', async () => {
@@ -1507,7 +1523,7 @@ describe('WebSocket Handler Tests', () => {
         turnState: 'DESCRIBING',
         turnStartTime: new Date().toISOString()
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -1516,7 +1532,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockUpdate).not.toHaveBeenCalled();
+      expect(mockUpdateCommand).not.toHaveBeenCalled();
     });
 
     test('should force end round when very close to timeout', async () => {
@@ -1535,7 +1551,7 @@ describe('WebSocket Handler Tests', () => {
         currentRound: 1,
         maxRounds: 2
       };
-      mockGet.mockReturnValue({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+      mockDdbSend.mockResolvedValue({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -1544,7 +1560,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('timeUp')
       }));
     });
@@ -1563,7 +1579,7 @@ describe('WebSocket Handler Tests', () => {
         currentDescriberIndex: 1, // test-connection-456 is describer
         wordOptions: ['apple', 'banana', 'orange']
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -1572,7 +1588,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('not the current describer')
       }));
     });
@@ -1588,7 +1604,7 @@ describe('WebSocket Handler Tests', () => {
         currentDescriberIndex: 0
         // No wordOptions
       };
-      mockGet.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Item: game }) });
+      mockDdbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -1597,7 +1613,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('Invalid word choice')
       }));
     });
@@ -1605,7 +1621,7 @@ describe('WebSocket Handler Tests', () => {
 
   describe('disconnect edge cases', () => {
     test('should handle disconnect when player not in any game', async () => {
-      mockScan.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Items: [] }) });
+      mockDdbSend.mockResolvedValueOnce({ Items: [] });
 
       const result = await disconnect(mockEvent as APIGatewayEvent, {} as any, {} as any);
 
@@ -1614,7 +1630,7 @@ describe('WebSocket Handler Tests', () => {
 
     test('should handle disconnect error gracefully', async () => {
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-      mockScan.mockReturnValueOnce({ promise: jest.fn().mockRejectedValue(new Error('DB Error')) });
+      mockDdbSend.mockRejectedValueOnce(new Error('DB Error'));
 
       const result = await disconnect(mockEvent as APIGatewayEvent, {} as any, {} as any);
 
@@ -1629,7 +1645,7 @@ describe('WebSocket Handler Tests', () => {
       const games = [
         { gameId: 'game-1', isPublic: true, gameState: 'WAITING', players: [] },
       ];
-      mockScan.mockReturnValueOnce({ promise: jest.fn().mockResolvedValue({ Items: games }) });
+      mockDdbSend.mockResolvedValueOnce({ Items: games });
 
       const event = {
         ...mockEvent,
@@ -1638,13 +1654,13 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('publicGamesList')
       }));
     });
 
     test('should handle error when listing public games via WebSocket', async () => {
-      mockScan.mockReturnValueOnce({ promise: jest.fn().mockRejectedValue(new Error('DB Error')) });
+      mockDdbSend.mockRejectedValueOnce(new Error('DB Error'));
 
       const event = {
         ...mockEvent,
@@ -1653,7 +1669,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnection).toHaveBeenCalledWith(expect.objectContaining({
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('error')
       }));
     });

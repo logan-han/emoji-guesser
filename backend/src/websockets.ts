@@ -1,9 +1,11 @@
 import { APIGatewayProxyHandler, APIGatewayEvent } from 'aws-lambda';
-import * as AWS from 'aws-sdk';
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, PutCommand, UpdateCommand, DeleteCommand, ScanCommand } from '@aws-sdk/lib-dynamodb';
+import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
 import { v4 as uuidv4 } from 'uuid';
 import { getRandomWords, generateHint } from './dictionary';
 
-const dynamoDb = new AWS.DynamoDB.DocumentClient();
+const dynamoDb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const GAMES_TABLE = process.env.GAMES_TABLE || 'emoji-guesser-games';
 
 // Store active timeouts to prevent memory leaks
@@ -12,19 +14,18 @@ const activeTimeouts = new Map<string, NodeJS.Timeout>();
 // --- Helper Functions ---
 
 const getApiGatewayManagementApi = (event: APIGatewayEvent) => {
-    return new AWS.ApiGatewayManagementApi({
-        apiVersion: '2018-11-29',
-        endpoint: `${event.requestContext.domainName}/${event.requestContext.stage}`,
+    return new ApiGatewayManagementApiClient({
+        endpoint: `https://${event.requestContext.domainName}/${event.requestContext.stage}`,
     });
 };
 
 const sendMessageToClient = async (connectionId: string, payload: any, event: APIGatewayEvent) => {
     try {
         const apiGateway = getApiGatewayManagementApi(event);
-        await apiGateway.postToConnection({
+        await apiGateway.send(new PostToConnectionCommand({
             ConnectionId: connectionId,
             Data: JSON.stringify(payload),
-        }).promise();
+        }));
     } catch (e: any) {
         if (e.statusCode !== 410) {
             console.error(`Failed to send message to ${connectionId}:`, e);
@@ -50,7 +51,7 @@ const scheduleRoundTimeout = (gameId: string, timeLimit: number) => {
         try {
             // Check if the game is still in DESCRIBING state
             const getParams = { TableName: GAMES_TABLE, Key: { gameId } };
-            const result = await dynamoDb.get(getParams).promise();
+            const result = await dynamoDb.send(new GetCommand(getParams));
             
             if (result.Item && result.Item.turnState === 'DESCRIBING') {
                 // End the round due to timeout
@@ -70,7 +71,7 @@ const scheduleRoundTimeout = (gameId: string, timeLimit: number) => {
 const forceEndRound = async (gameId: string) => {
     try {
         const getParams = { TableName: GAMES_TABLE, Key: { gameId } };
-        const result = await dynamoDb.get(getParams).promise();
+        const result = await dynamoDb.send(new GetCommand(getParams));
         
         if (!result.Item || result.Item.turnState !== 'DESCRIBING') {
             return; // Game already ended or not in describing state
@@ -87,7 +88,7 @@ const forceEndRound = async (gameId: string) => {
             UpdateExpression: 'set turnState = :t',
             ExpressionAttributeValues: { ':t': game.turnState },
         };
-        await dynamoDb.update(updateParams).promise();
+        await dynamoDb.send(new UpdateCommand(updateParams));
 
         // Create a minimal event object for broadcasting
         const mockEvent = {
@@ -132,7 +133,7 @@ async function cleanupStalePlayers(game: any, event: APIGatewayEvent): Promise<a
     if (playersChanged) {
         game.players = activePlayers;
         if (game.players.length === 0) {
-            await dynamoDb.delete({ TableName: GAMES_TABLE, Key: { gameId: game.gameId } }).promise();
+            await dynamoDb.send(new DeleteCommand({ TableName: GAMES_TABLE, Key: { gameId: game.gameId } }));
             return null; // Game deleted
         }
 
@@ -153,7 +154,7 @@ async function cleanupStalePlayers(game: any, event: APIGatewayEvent): Promise<a
                 ':os': game.ownerSessionId,
             },
         };
-        await dynamoDb.update(updateParams).promise();
+        await dynamoDb.send(new UpdateCommand(updateParams));
 
         const playerIds = game.players.map((p: any) => p.connectionId);
         await broadcastToPlayers(playerIds, { action: 'playerLeft', game }, event);
@@ -196,7 +197,7 @@ async function handlePlayerDisconnectInActiveGame(game: any, disconnectedPlayer:
             },
         };
         
-        await dynamoDb.update(updateParams).promise();
+        await dynamoDb.send(new UpdateCommand(updateParams));
         
         // Notify remaining players
         const playerIds = updatedPlayers.map((p: any) => p.connectionId);
@@ -303,7 +304,7 @@ async function handlePlayerDisconnectInActiveGame(game: any, disconnectedPlayer:
         }
     };
     
-    await dynamoDb.update(updateParams).promise();
+    await dynamoDb.send(new UpdateCommand(updateParams));
     
     // Notify remaining players
     const playerIds = updatedPlayers.map((p: any) => p.connectionId);
@@ -334,7 +335,7 @@ async function handleNormalDisconnect(game: any, updatedPlayers: any[], connecti
         UpdateExpression: 'set players = :p, ownerId = :o',
         ExpressionAttributeValues: { ':p': updatedPlayers, ':o': ownerId }
     };
-    await dynamoDb.update(updateParams).promise();
+    await dynamoDb.send(new UpdateCommand(updateParams));
     
     // Notify remaining players
     const playerIds = updatedPlayers.map((p: any) => p.connectionId);
@@ -366,7 +367,7 @@ export const disconnect: APIGatewayProxyHandler = async (event) => {
       TableName: GAMES_TABLE,
     };
     
-    const result = await dynamoDb.scan(scanParams).promise();
+    const result = await dynamoDb.send(new ScanCommand(scanParams));
     
     if (result.Items && result.Items.length > 0) {
       for (const game of result.Items) {
@@ -378,7 +379,7 @@ export const disconnect: APIGatewayProxyHandler = async (event) => {
           
           if (updatedPlayers.length === 0) {
             // Delete empty game
-            await dynamoDb.delete({ TableName: GAMES_TABLE, Key: { gameId: game.gameId } }).promise();
+            await dynamoDb.send(new DeleteCommand({ TableName: GAMES_TABLE, Key: { gameId: game.gameId } }));
             console.log(`Game ${game.gameId} deleted as last player disconnected.`);
           } else {
             // Handle special cases for active games
@@ -410,7 +411,7 @@ export const listPublicGames: APIGatewayProxyHandler = async (event) => {
     };
 
     try {
-        const result = await dynamoDb.scan(params).promise();
+        const result = await dynamoDb.send(new ScanCommand(params));
         return {
             statusCode: 200,
             headers: {
@@ -443,7 +444,7 @@ async function sendPublicGamesList(connectionId: string, event: APIGatewayEvent)
     };
 
     try {
-        const result = await dynamoDb.scan(params).promise();
+        const result = await dynamoDb.send(new ScanCommand(params));
         await sendMessageToClient(connectionId, { action: 'publicGamesList', games: result.Items }, event);
     } catch (error) {
         console.error('Failed to list public games:', error);
@@ -477,7 +478,7 @@ async function createGame(connectionId: string, event: APIGatewayEvent, sessionI
     };
 
     try {
-        await dynamoDb.put({ TableName: GAMES_TABLE, Item: game }).promise();
+        await dynamoDb.send(new PutCommand({ TableName: GAMES_TABLE, Item: game }));
         console.log(`Game ${gameId} created by ${connectionId}`);
         await sendMessageToClient(connectionId, { action: 'gameCreated', game }, event);
     } catch (error) {
@@ -490,7 +491,7 @@ async function joinGame(connectionId: string, gameId: string, event: APIGatewayE
     const getParams = { TableName: GAMES_TABLE, Key: { gameId } };
 
     try {
-        const result = await dynamoDb.get(getParams).promise();
+        const result = await dynamoDb.send(new GetCommand(getParams));
         if (!result.Item) {
             await sendMessageToClient(connectionId, { action: 'error', message: 'Game not found.' }, event);
             return;
@@ -529,7 +530,7 @@ async function joinGame(connectionId: string, gameId: string, event: APIGatewayE
                     : { ':p': game.players },
             };
 
-            await dynamoDb.update(updateParams).promise();
+            await dynamoDb.send(new UpdateCommand(updateParams));
             await sendMessageToClient(connectionId, { action: 'playerJoined', game }, event);
             
             // If game is in progress, send additional info
@@ -572,7 +573,7 @@ async function joinGame(connectionId: string, gameId: string, event: APIGatewayE
                 UpdateExpression: 'set spectators = :s',
                 ExpressionAttributeValues: { ':s': game.spectators },
             };
-            await dynamoDb.update(updateParams).promise();
+            await dynamoDb.send(new UpdateCommand(updateParams));
 
             await sendMessageToClient(connectionId, { action: 'spectatorJoined', game }, event);
             
@@ -598,7 +599,7 @@ async function joinGame(connectionId: string, gameId: string, event: APIGatewayE
             ExpressionAttributeValues: { ':p': game.players },
         };
 
-        await dynamoDb.update(updateParams).promise();
+        await dynamoDb.send(new UpdateCommand(updateParams));
         console.log(`Player ${connectionId} joined game ${gameId}`);
 
         const playerIds = game.players.map((p: any) => p.connectionId);
@@ -623,10 +624,10 @@ async function startGame(connectionId: string, gameId: string, event: APIGateway
                 ':waiting': 'WAITING',
                 ':now': new Date().toISOString(),
             },
-            ReturnValues: 'ALL_NEW',
+            ReturnValues: 'ALL_NEW' as const,
         };
 
-        const startingResult = await dynamoDb.update(startingUpdateParams).promise();
+        const startingResult = await dynamoDb.send(new UpdateCommand(startingUpdateParams));
         let game = startingResult.Attributes;
 
         if (!game) {
@@ -698,7 +699,7 @@ async function startGame(connectionId: string, gameId: string, event: APIGateway
             },
         };
 
-        await dynamoDb.update(updateParams).promise();
+        await dynamoDb.send(new UpdateCommand(updateParams));
         console.log(`Game ${gameId} started`);
 
         const playerIds = game.players.map((p: any) => p.connectionId);
@@ -725,7 +726,7 @@ async function startGame(connectionId: string, gameId: string, event: APIGateway
         // Schedule a timeout for word selection
         const wordChoiceTimeout = setTimeout(async () => {
             try {
-                const freshGame = await dynamoDb.get({ TableName: GAMES_TABLE, Key: { gameId } }).promise();
+                const freshGame = await dynamoDb.send(new GetCommand({ TableName: GAMES_TABLE, Key: { gameId } }));
                 if (freshGame.Item && freshGame.Item.turnState === 'CHOOSING_WORD') {
                     await chooseWord(describerId, gameId, game.wordOptions[0], event);
                 }
@@ -746,7 +747,7 @@ async function chooseWord(connectionId: string, gameId: string, word: string, ev
     const getParams = { TableName: GAMES_TABLE, Key: { gameId } };
 
     try {
-        const result = await dynamoDb.get(getParams).promise();
+        const result = await dynamoDb.send(new GetCommand(getParams));
         if (!result.Item) { return; }
 
         const game = result.Item;
@@ -790,7 +791,7 @@ async function chooseWord(connectionId: string, gameId: string, word: string, ev
             },
         };
 
-        await dynamoDb.update(updateParams).promise();
+        await dynamoDb.send(new UpdateCommand(updateParams));
 
         const describerId = game.players[game.currentDescriberIndex].connectionId;
         await sendMessageToClient(describerId, { action: 'describeWord', word: game.secretWord, game }, event);
@@ -815,7 +816,7 @@ async function chooseWord(connectionId: string, gameId: string, word: string, ev
         setTimeout(async () => {
             try {
                 const checkParams = { TableName: GAMES_TABLE, Key: { gameId } };
-                const checkResult = await dynamoDb.get(checkParams).promise();
+                const checkResult = await dynamoDb.send(new GetCommand(checkParams));
                 if (checkResult.Item && checkResult.Item.turnState === 'DESCRIBING') {
                     console.log(`Backup timeout 1 triggered for game ${gameId}`);
                     await handleTimeUp(gameId, event);
@@ -828,7 +829,7 @@ async function chooseWord(connectionId: string, gameId: string, word: string, ev
         setTimeout(async () => {
             try {
                 const checkParams = { TableName: GAMES_TABLE, Key: { gameId } };
-                const checkResult = await dynamoDb.get(checkParams).promise();
+                const checkResult = await dynamoDb.send(new GetCommand(checkParams));
                 if (checkResult.Item && checkResult.Item.turnState === 'DESCRIBING') {
                     console.log(`Backup timeout 2 triggered for game ${gameId}`);
                     await handleTimeUp(gameId, event);
@@ -856,7 +857,7 @@ async function submitGuess(connectionId: string, gameId: string, guess: string, 
     const getParams = { TableName: GAMES_TABLE, Key: { gameId } };
 
     try {
-        const result = await dynamoDb.get(getParams).promise();
+        const result = await dynamoDb.send(new GetCommand(getParams));
         if (!result.Item) { return; }
 
         const game = result.Item;
@@ -936,7 +937,7 @@ async function nextTurn(game: any, event: APIGatewayEvent) {
             ExpressionAttributeValues: { ':s': 'ENDED' },
         };
         
-        await dynamoDb.update(updateParams).promise();
+        await dynamoDb.send(new UpdateCommand(updateParams));
         
         const playerIds = game.players.map((p: any) => p.connectionId);
         const spectatorIds = game.spectators ? game.spectators.map((s: any) => s.connectionId) : [];
@@ -983,7 +984,7 @@ async function nextTurn(game: any, event: APIGatewayEvent) {
         }
     };
 
-    await dynamoDb.update(updateParams).promise();
+    await dynamoDb.send(new UpdateCommand(updateParams));
 
     const playerIds = game.players.map((p: any) => p.connectionId);
     const spectatorIds = game.spectators ? game.spectators.map((s: any) => s.connectionId) : [];
@@ -1011,7 +1012,7 @@ async function submitEmoji(connectionId: string, gameId: string, emoji: string, 
     const getParams = { TableName: GAMES_TABLE, Key: { gameId } };
 
     try {
-        const result = await dynamoDb.get(getParams).promise();
+        const result = await dynamoDb.send(new GetCommand(getParams));
         if (!result.Item) { return; } // Game not found
 
         const game = result.Item;
@@ -1033,10 +1034,10 @@ async function heartbeat(connectionId: string, event: APIGatewayEvent, sessionId
         
         if (gameId) {
             try {
-                const gameResult = await dynamoDb.get({ 
+                const gameResult = await dynamoDb.send(new GetCommand({ 
                     TableName: GAMES_TABLE, 
                     Key: { gameId } 
-                }).promise();
+                }));
                 
                 if (gameResult.Item) {
                     gamesToProcess = [gameResult.Item];
@@ -1052,7 +1053,7 @@ async function heartbeat(connectionId: string, event: APIGatewayEvent, sessionId
                 TableName: GAMES_TABLE
             };
             
-            const scanResult = await dynamoDb.scan(scanParams).promise();
+            const scanResult = await dynamoDb.send(new ScanCommand(scanParams));
             
             if (scanResult.Items) {
                 // Filter games where this player is present
@@ -1085,7 +1086,7 @@ async function heartbeat(connectionId: string, event: APIGatewayEvent, sessionId
                     UpdateExpression: 'set players = :p',
                     ExpressionAttributeValues: { ':p': game.players }
                 };
-                await dynamoDb.update(updateParams).promise();
+                await dynamoDb.send(new UpdateCommand(updateParams));
             }
 
             // If the game is in DESCRIBING state AND this heartbeat is for this specific game, update hint
@@ -1119,7 +1120,7 @@ async function heartbeat(connectionId: string, event: APIGatewayEvent, sessionId
                         UpdateExpression: 'set currentHint = :h',
                         ExpressionAttributeValues: { ':h': game.currentHint },
                     };
-                    await dynamoDb.update(hintUpdateParams).promise();
+                    await dynamoDb.send(new UpdateCommand(hintUpdateParams));
 
                     // Broadcast updated hint to all non-describer players and spectators
                     const playerIds = game.players.map((p: any) => p.connectionId);
@@ -1156,7 +1157,7 @@ async function updatePlayerName(connectionId: string, gameId: string, name: stri
     const getParams = { TableName: GAMES_TABLE, Key: { gameId } };
 
     try {
-        const result = await dynamoDb.get(getParams).promise();
+        const result = await dynamoDb.send(new GetCommand(getParams));
         if (!result.Item) {
             await sendMessageToClient(connectionId, { action: 'error', message: 'Game not found.' }, event);
             return;
@@ -1185,7 +1186,7 @@ async function updatePlayerName(connectionId: string, gameId: string, name: stri
             ExpressionAttributeValues: { ':p': game.players },
         };
 
-        await dynamoDb.update(updateParams).promise();
+        await dynamoDb.send(new UpdateCommand(updateParams));
         
         const playerIds = game.players.map((p: any) => p.connectionId);
         await broadcastToPlayers(playerIds, { action: 'playerNameUpdated', game }, event);
@@ -1200,7 +1201,7 @@ async function handleTimeUp(gameId: string, event: APIGatewayEvent) {
     const getParams = { TableName: GAMES_TABLE, Key: { gameId } };
 
     try {
-        const result = await dynamoDb.get(getParams).promise();
+        const result = await dynamoDb.send(new GetCommand(getParams));
         if (!result.Item) { 
             console.log(`Game ${gameId} not found during timeUp`);
             return; 
@@ -1237,7 +1238,7 @@ async function handleTimeUp(gameId: string, event: APIGatewayEvent) {
             UpdateExpression: 'set turnState = :t',
             ExpressionAttributeValues: { ':t': game.turnState },
         };
-        await dynamoDb.update(updateParams).promise();
+        await dynamoDb.send(new UpdateCommand(updateParams));
         console.log(`Game ${gameId} marked as ENDING`);
 
         // End the current round due to timeout
@@ -1264,7 +1265,7 @@ async function updateHint(gameId: string, event: APIGatewayEvent) {
     const getParams = { TableName: GAMES_TABLE, Key: { gameId } };
 
     try {
-        const result = await dynamoDb.get(getParams).promise();
+        const result = await dynamoDb.send(new GetCommand(getParams));
         if (!result.Item) { return; }
 
         const game = result.Item;
@@ -1303,7 +1304,7 @@ async function updateHint(gameId: string, event: APIGatewayEvent) {
             ExpressionAttributeValues: { ':h': game.currentHint },
         };
 
-        await dynamoDb.update(updateParams).promise();
+        await dynamoDb.send(new UpdateCommand(updateParams));
 
         // Broadcast updated hint to all non-describer players and spectators
         const playerIds = game.players.map((p: any) => p.connectionId);
@@ -1328,7 +1329,7 @@ async function restartGame(connectionId: string, gameId: string, event: APIGatew
     const getParams = { TableName: GAMES_TABLE, Key: { gameId } };
 
     try {
-        const result = await dynamoDb.get(getParams).promise();
+        const result = await dynamoDb.send(new GetCommand(getParams));
         if (!result.Item) {
             await sendMessageToClient(connectionId, { action: 'error', message: 'Game not found.' }, event);
             return;
@@ -1382,7 +1383,7 @@ async function restartGame(connectionId: string, gameId: string, event: APIGatew
                         },
                     };
 
-                    await dynamoDb.update(updateParams).promise();
+                    await dynamoDb.send(new UpdateCommand(updateParams));
                     
                     // Send rejoin confirmation to this player
                     await sendMessageToClient(connectionId, { 
@@ -1471,7 +1472,7 @@ async function restartGame(connectionId: string, gameId: string, event: APIGatew
             },
         };
 
-        await dynamoDb.update(updateParams).promise();
+        await dynamoDb.send(new UpdateCommand(updateParams));
         console.log(`Game ${gameId} restarted by owner`);
 
         // Notify all players that the game has been restarted
@@ -1596,7 +1597,7 @@ export const cleanupGames: APIGatewayProxyHandler = async (event) => {
     };
 
     try {
-        const result = await dynamoDb.scan(scanParams).promise();
+        const result = await dynamoDb.send(new ScanCommand(scanParams));
         if (!result.Items) {
             return { statusCode: 200, body: 'No games to process.' };
         }
@@ -1605,13 +1606,13 @@ export const cleanupGames: APIGatewayProxyHandler = async (event) => {
             const hasActivePlayers = game.players.some((p: any) => new Date(p.lastSeen).toISOString() > fiveMinutesAgo);
 
             if (game.players.length === 0) {
-                await dynamoDb.delete({ TableName: GAMES_TABLE, Key: { gameId: game.gameId } }).promise();
+                await dynamoDb.send(new DeleteCommand({ TableName: GAMES_TABLE, Key: { gameId: game.gameId } }));
                 console.log(`Deleted game ${game.gameId} due to no players.`);
             } else if ((game.gameState === 'WAITING' || game.gameState === 'ENDED') && game.updatedAt < twoHoursAgo) {
-                await dynamoDb.delete({ TableName: GAMES_TABLE, Key: { gameId: game.gameId } }).promise();
+                await dynamoDb.send(new DeleteCommand({ TableName: GAMES_TABLE, Key: { gameId: game.gameId } }));
                 console.log(`Deleted stale game ${game.gameId} in ${game.gameState} state.`);
             } else if (game.gameState === 'IN_PROGRESS' && !hasActivePlayers) {
-                await dynamoDb.delete({ TableName: GAMES_TABLE, Key: { gameId: game.gameId } }).promise();
+                await dynamoDb.send(new DeleteCommand({ TableName: GAMES_TABLE, Key: { gameId: game.gameId } }));
                 console.log(`Deleted inactive game ${game.gameId} in IN_PROGRESS state.`);
             }
         }
