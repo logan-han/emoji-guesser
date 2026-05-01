@@ -1,11 +1,6 @@
 // Set environment variables for testing before importing modules
 process.env.SUPABASE_GAMES_TABLE = 'test-games-table';
 
-// Mock uuid
-jest.mock('uuid', () => ({
-  v4: jest.fn(() => 'mocked-uuid-123456')
-}));
-
 // Mock dictionary
 jest.mock('./dictionary', () => ({
   getRandomWords: jest.fn().mockResolvedValue(['apple', 'banana', 'orange']),

@@ -41,14 +41,12 @@
     "@aws-sdk/client-apigatewaymanagementapi": "^3.0.0",
     "@supabase/supabase-js": "^2.105.1",
     "compromise": "^14.11.0",
-    "random-words": "^2.0.1",
-    "uuid": "^14.0.0"
+    "random-words": "^2.0.1"
   },
   "devDependencies": {
     "@types/aws-lambda": "^8.10.150",
     "@types/jest": "^29.5.13",
     "@types/node": "^24.0.8",
-    "@types/uuid": "^10.0.0",
     "jest": "^29.7.0",
     "serverless": "^4.17.1",
     "serverless-webpack": "^5.15.1",

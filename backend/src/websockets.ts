@@ -1,6 +1,6 @@
 import { APIGatewayProxyHandler, APIGatewayEvent } from 'aws-lambda';
 import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
-import { v4 as uuidv4 } from 'uuid';
+import { randomUUID } from 'crypto';
 import { getRandomWords, generateHint } from './dictionary';
 import { gameStore, publishGameEvent, GetCommand, PutCommand, UpdateCommand, DeleteCommand, ScanCommand } from './supabaseStore';
 
@@ -457,7 +457,7 @@ async function sendPublicGamesList(connectionId: string, event: APIGatewayEvent)
     }
 }
 async function createGame(connectionId: string, event: APIGatewayEvent, sessionId?: string, timeLimit?: number, maxRounds?: number, isPublic?: boolean, playerName?: string) {
-    const gameId = uuidv4().substring(0, 6).toUpperCase();
+    const gameId = randomUUID().substring(0, 6).toUpperCase();
     const now = new Date().toISOString();
     const ttl = Math.floor(Date.now() / 1000) + (24 * 60 * 60); // 24-hour TTL
 
