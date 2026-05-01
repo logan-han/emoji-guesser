@@ -261,6 +261,14 @@ describe('WebSocket Handler Tests', () => {
         body: 'Message handled.'
       });
       expect(mockGetCommand).toHaveBeenCalled();
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith({
+        ConnectionId: 'test-connection-123',
+        Data: expect.stringContaining('"action":"playerJoined"')
+      });
+      expect(mockPublishGameEvent).toHaveBeenCalledWith(
+        'existing-game',
+        expect.objectContaining({ action: 'playerJoined' })
+      );
     });
 
     test('handles player rejoining a waiting game', async () => {

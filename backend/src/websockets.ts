@@ -608,8 +608,8 @@ async function joinGame(connectionId: string, gameId: string, event: APIGatewayE
         await db.send(new UpdateCommand(updateParams));
         console.log(`Player ${connectionId} joined game ${gameId}`);
 
-        const playerIds = game.players.map((p: any) => p.connectionId);
-        await broadcastToPlayers(playerIds, { action: 'playerJoined', game }, event);
+        await sendMessageToClient(connectionId, { action: 'playerJoined', game }, event);
+        await publishGameEvent(gameId, { action: 'playerJoined', game });
 
     } catch (error) {
         console.error(`Failed to join game ${gameId}:`, error);
