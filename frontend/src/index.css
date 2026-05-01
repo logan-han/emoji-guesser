@@ -1,43 +1,35 @@
-* {
-  box-sizing: border-box;
-}
+@import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  /* Prevent horizontal scroll */
-  overflow-x: hidden;
-  /* Improve touch scrolling on iOS */
-  -webkit-overflow-scrolling: touch;
-  /* Prevent text size adjustment on mobile */
-  -webkit-text-size-adjust: 100%;
-  -ms-text-size-adjust: 100%;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(255, 110, 196, 0.18), transparent 45%),
+    radial-gradient(circle at 88% 12%, rgba(120, 220, 255, 0.18), transparent 50%),
+    radial-gradient(circle at 50% 95%, rgba(255, 215, 90, 0.15), transparent 55%),
+    #0f0a1f;
+  background-attachment: fixed;
+  color: #f5edff;
+  min-height: 100vh;
 }
 
-code {
-  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
-    monospace;
+h1, h2, h3, h4 {
+  font-family: 'Fredoka', 'Inter', sans-serif;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
-/* Ensure all interactive elements are touch-friendly */
-button, input, select, textarea {
-  font-family: inherit;
-  font-size: inherit;
-  /* Prevent zoom on iOS */
-  font-size: max(16px, 1em);
-}
+button { font-family: inherit; }
 
-/* Improve button touch targets */
-button {
-  min-height: 44px;
-  min-width: 44px;
-}
+::selection { background: #ff66c4; color: #1a0a2e; }
 
-/* Remove default tap highlight on mobile */
-* {
-  -webkit-tap-highlight-color: transparent;
-}
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: rgba(255,255,255,0.04); border-radius: 6px; }
+::-webkit-scrollbar-thumb { background: linear-gradient(180deg, #a855f7, #ff66c4); border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: linear-gradient(180deg, #c084fc, #ff8fd1); }
