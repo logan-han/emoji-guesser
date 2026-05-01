@@ -24,14 +24,14 @@ describe('Sound Effects', () => {
   describe('soundEffects', () => {
     test('contains all expected sound effects', () => {
       expect(soundEffects).toEqual({
-        gameStart: '/sounds/game-start.mp3',
-        correctGuess: '/sounds/correct-guess.mp3',
-        buttonClick: '/sounds/button-click.mp3',
-        playerJoined: '/sounds/player-joined.mp3',
-        gameEnd: '/sounds/game-end.mp3',
-        emojiSelect: '/sounds/emoji-select.mp3',
-        newGuess: '/sounds/new-guess.mp3',
-        timeUp: '/sounds/time-up.mp3',
+        gameStart: '/sounds/game-start.wav',
+        correctGuess: '/sounds/correct-guess.wav',
+        buttonClick: '/sounds/button-click.wav',
+        playerJoined: '/sounds/player-joined.wav',
+        gameEnd: '/sounds/game-end.wav',
+        emojiSelect: '/sounds/emoji-select.wav',
+        newGuess: '/sounds/new-guess.wav',
+        timeUp: '/sounds/time-up.wav',
       });
     });
   });
@@ -40,21 +40,21 @@ describe('Sound Effects', () => {
     test('plays gameStart sound', () => {
       playSound('gameStart');
 
-      expect(Audio).toHaveBeenCalledWith('/sounds/game-start.mp3');
+      expect(Audio).toHaveBeenCalledWith('/sounds/game-start.wav');
       expect(mockPlay).toHaveBeenCalled();
     });
 
     test('plays correctGuess sound', () => {
       playSound('correctGuess');
 
-      expect(Audio).toHaveBeenCalledWith('/sounds/correct-guess.mp3');
+      expect(Audio).toHaveBeenCalledWith('/sounds/correct-guess.wav');
       expect(mockPlay).toHaveBeenCalled();
     });
 
     test('plays buttonClick sound', () => {
       playSound('buttonClick');
 
-      expect(Audio).toHaveBeenCalledWith('/sounds/button-click.mp3');
+      expect(Audio).toHaveBeenCalledWith('/sounds/button-click.wav');
       expect(mockPlay).toHaveBeenCalled();
     });
 

@@ -55,6 +55,7 @@
     "postinstall": "node scripts/patch-react-scripts.js",
     "start": "react-scripts start",
     "build": "react-scripts build",
+    "generate:sounds": "node scripts/generate-sounds.js",
     "test": "react-scripts test --watchAll=false",
     "test:coverage": "react-scripts test --coverage --watchAll=false",
     "test:e2e": "playwright test",

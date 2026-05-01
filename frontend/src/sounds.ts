@@ -3,14 +3,14 @@
 
 // Define the available sound effects
 export const soundEffects = {
-  gameStart: '/sounds/game-start.mp3',
-  correctGuess: '/sounds/correct-guess.mp3',
-  buttonClick: '/sounds/button-click.mp3',
-  playerJoined: '/sounds/player-joined.mp3',
-  gameEnd: '/sounds/game-end.mp3',
-  emojiSelect: '/sounds/emoji-select.mp3',
-  newGuess: '/sounds/new-guess.mp3',
-  timeUp: '/sounds/time-up.mp3',
+  gameStart: '/sounds/game-start.wav',
+  correctGuess: '/sounds/correct-guess.wav',
+  buttonClick: '/sounds/button-click.wav',
+  playerJoined: '/sounds/player-joined.wav',
+  gameEnd: '/sounds/game-end.wav',
+  emojiSelect: '/sounds/emoji-select.wav',
+  newGuess: '/sounds/new-guess.wav',
+  timeUp: '/sounds/time-up.wav',
 };
 
 // Function to play a sound
