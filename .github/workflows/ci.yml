@@ -101,12 +101,16 @@ jobs:
       - name: Deploy Backend
         env:
           SERVERLESS_ACCESS_KEY: ${{ secrets.SERVERLESS_ACCESS_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: yarn sls deploy --stage prod
         working-directory: ./backend
 
       - name: Get WebSocket URL
         env:
           SERVERLESS_ACCESS_KEY: ${{ secrets.SERVERLESS_ACCESS_KEY }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         id: websocket-url
         run: |
           WS_URL=$(npx sls info --stage prod --json | jq -r '.info.endpoints[0]')
@@ -136,6 +140,8 @@ jobs:
       - name: Build Frontend
         env:
           REACT_APP_WS_URL: ${{ needs.deploy-backend.outputs.websocket-url }}
+          REACT_APP_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          REACT_APP_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
         run: yarn build
         working-directory: ./frontend
 

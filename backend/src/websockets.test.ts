@@ -1,5 +1,5 @@
 // Set environment variables for testing before importing modules
-process.env.GAMES_TABLE = 'test-games-table';
+process.env.SUPABASE_GAMES_TABLE = 'test-games-table';
 
 // Mock uuid
 jest.mock('uuid', () => ({
@@ -12,8 +12,9 @@ jest.mock('./dictionary', () => ({
   generateHint: jest.fn().mockReturnValue('_ _ _ _ _'),
 }));
 
-// DynamoDB mocks
-const mockDdbSend = jest.fn().mockResolvedValue({});
+// Supabase store mocks
+const mockDbSend = jest.fn().mockResolvedValue({});
+const mockPublishGameEvent = jest.fn().mockResolvedValue(undefined);
 const mockGetCommand = jest.fn().mockImplementation((input) => ({ input }));
 const mockPutCommand = jest.fn().mockImplementation((input) => ({ input }));
 const mockUpdateCommand = jest.fn().mockImplementation((input) => ({ input }));
@@ -24,13 +25,16 @@ const mockScanCommand = jest.fn().mockImplementation((input) => ({ input }));
 const mockApgSend = jest.fn().mockResolvedValue({});
 const mockPostToConnectionCommand = jest.fn().mockImplementation((input) => ({ input }));
 
-// Mock AWS SDK v3
-jest.mock('@aws-sdk/client-dynamodb', () => ({
-  DynamoDBClient: jest.fn().mockImplementation(() => ({})),
-}));
+const expectRealtimeAction = (action: string) => {
+  expect(mockPublishGameEvent).toHaveBeenCalledWith(
+    expect.any(String),
+    expect.objectContaining({ action })
+  );
+};
 
-jest.mock('@aws-sdk/lib-dynamodb', () => ({
-  DynamoDBDocumentClient: { from: jest.fn().mockReturnValue({ send: mockDdbSend }) },
+jest.mock('./supabaseStore', () => ({
+  gameStore: { send: mockDbSend },
+  publishGameEvent: mockPublishGameEvent,
   GetCommand: mockGetCommand,
   PutCommand: mockPutCommand,
   UpdateCommand: mockUpdateCommand,
@@ -60,8 +64,9 @@ describe('WebSocket Handler Tests', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    process.env.GAMES_TABLE = 'test-games-table';
-    mockDdbSend.mockResolvedValue({});
+    process.env.SUPABASE_GAMES_TABLE = 'test-games-table';
+    mockDbSend.mockResolvedValue({});
+    mockPublishGameEvent.mockResolvedValue(undefined);
     mockApgSend.mockResolvedValue({});
     mockGetCommand.mockImplementation((input) => ({ input }));
     mockPutCommand.mockImplementation((input) => ({ input }));
@@ -96,7 +101,7 @@ describe('WebSocket Handler Tests', () => {
           { connectionId: 'test-connection-456', name: 'Player 2' },
         ]
       };
-      mockDdbSend.mockResolvedValueOnce({ Items: [game] });
+      mockDbSend.mockResolvedValueOnce({ Items: [game] });
 
       const result = await disconnect(mockEvent as APIGatewayEvent, {} as any, {} as any);
 
@@ -128,14 +133,12 @@ describe('WebSocket Handler Tests', () => {
         gameState: 'IN_PROGRESS',
         currentDescriberIndex: 0
       };
-      mockDdbSend.mockResolvedValueOnce({ Items: [game] });
+      mockDbSend.mockResolvedValueOnce({ Items: [game] });
 
       await disconnect(mockEvent as APIGatewayEvent, {} as any, {} as any);
 
       expect(mockUpdateCommand).toHaveBeenCalled();
-      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
-        Data: expect.stringContaining('playerLeft')
-      }));
+      expectRealtimeAction('playerLeft');
     });
 
     test('deletes the game if the last player disconnects', async () => {
@@ -146,7 +149,7 @@ describe('WebSocket Handler Tests', () => {
           { connectionId: 'test-connection-123', name: 'Player 1', lastSeen: new Date().toISOString() },
         ],
       };
-      mockDdbSend.mockResolvedValueOnce({ Items: [game] });
+      mockDbSend.mockResolvedValueOnce({ Items: [game] });
 
       await disconnect(mockEvent as APIGatewayEvent, {} as any, {} as any);
 
@@ -165,7 +168,7 @@ describe('WebSocket Handler Tests', () => {
         gameState: 'IN_PROGRESS',
         currentDescriberIndex: 0
       };
-      mockDdbSend.mockResolvedValueOnce({ Items: [game] });
+      mockDbSend.mockResolvedValueOnce({ Items: [game] });
 
       const event = {
         ...mockEvent,
@@ -175,9 +178,7 @@ describe('WebSocket Handler Tests', () => {
       await disconnect(event as APIGatewayEvent, {} as any, {} as any);
 
       expect(mockUpdateCommand).toHaveBeenCalled();
-      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
-        Data: expect.stringContaining('playerLeft')
-      }));
+      expectRealtimeAction('playerLeft');
     });
 
     test('ends the game if a player disconnects and there are not enough players', async () => {
@@ -191,7 +192,7 @@ describe('WebSocket Handler Tests', () => {
           gameState: 'IN_PROGRESS',
           currentDescriberIndex: 0
         };
-        mockDdbSend.mockResolvedValueOnce({ Items: [game] });
+        mockDbSend.mockResolvedValueOnce({ Items: [game] });
 
         await disconnect(mockEvent as APIGatewayEvent, {} as any, {} as any);
 
@@ -200,9 +201,7 @@ describe('WebSocket Handler Tests', () => {
             ':s': 'ENDED'
           })
         }));
-        expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
-          Data: expect.stringContaining('gameEnded')
-        }));
+        expectRealtimeAction('gameEnded');
       });
   });
 
@@ -227,7 +226,7 @@ describe('WebSocket Handler Tests', () => {
     });
 
     test('handles createGame failure', async () => {
-      mockDdbSend.mockRejectedValueOnce(new Error('DynamoDB error'));
+      mockDbSend.mockRejectedValueOnce(new Error('Database error'));
 
       const createGameEvent = {
         ...mockEvent,
@@ -252,7 +251,7 @@ describe('WebSocket Handler Tests', () => {
         players: [{ connectionId: 'owner-123', name: 'Owner' }],
         gameState: 'WAITING'
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: existingGame });
+      mockDbSend.mockResolvedValueOnce({ Item: existingGame });
 
       const joinGameEvent = {
         ...mockEvent,
@@ -279,7 +278,7 @@ describe('WebSocket Handler Tests', () => {
         players: [{ connectionId: 'owner-123', name: 'Owner', sessionId: 'session-1' }],
         gameState: 'WAITING'
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: existingGame });
+      mockDbSend.mockResolvedValueOnce({ Item: existingGame });
 
       const joinGameEvent = {
         ...mockEvent,
@@ -300,7 +299,7 @@ describe('WebSocket Handler Tests', () => {
     });
 
     test('handles joinGame with non-existent game', async () => {
-      mockDdbSend.mockResolvedValueOnce({});
+      mockDbSend.mockResolvedValueOnce({});
 
       const joinGameEvent = {
         ...mockEvent,
@@ -330,7 +329,7 @@ describe('WebSocket Handler Tests', () => {
         players: [{ connectionId: 'owner-123', name: 'Owner', lastSeen: new Date().toISOString() }],
         gameState: 'IN_PROGRESS'
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: existingGame });
+      mockDbSend.mockResolvedValueOnce({ Item: existingGame });
 
       const joinGameEvent = {
         ...mockEvent,
@@ -363,7 +362,7 @@ describe('WebSocket Handler Tests', () => {
         secretWord: 'apple',
         currentHint: '_ _ _ _ _'
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: existingGame });
+      mockDbSend.mockResolvedValueOnce({ Item: existingGame });
 
       const joinGameEvent = {
         ...mockEvent,
@@ -379,9 +378,7 @@ describe('WebSocket Handler Tests', () => {
       await default_handler(joinGameEvent as APIGatewayEvent, {} as any, {} as any);
 
       expect(mockUpdateCommand).toHaveBeenCalled();
-      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
-        Data: expect.stringContaining('playerReconnected')
-      }));
+      expectRealtimeAction('playerReconnected');
       expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         ConnectionId: 'new-connection-id',
         Data: expect.stringContaining('hintUpdated')
@@ -389,7 +386,7 @@ describe('WebSocket Handler Tests', () => {
     });
 
     test('handles joinGame failure', async () => {
-      mockDdbSend.mockRejectedValueOnce(new Error('DynamoDB error'));
+      mockDbSend.mockRejectedValueOnce(new Error('Database error'));
 
       const joinGameEvent = {
         ...mockEvent,
@@ -426,7 +423,7 @@ describe('WebSocket Handler Tests', () => {
     });
 
     test('should handle heartbeat failure', async () => {
-      mockDdbSend.mockRejectedValueOnce(new Error('DynamoDB error'));
+      mockDbSend.mockRejectedValueOnce(new Error('Database error'));
 
       const heartbeatEvent = {
         ...mockEvent,
@@ -446,7 +443,7 @@ describe('WebSocket Handler Tests', () => {
           { connectionId: 'test-connection-123', name: 'Player 1', lastSeen: new Date().toISOString() },
         ],
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: game });
+      mockDbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -468,8 +465,8 @@ describe('WebSocket Handler Tests', () => {
           { connectionId: 'test-connection-123', name: 'Player 1', lastSeen: new Date().toISOString() },
         ],
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: game });
-      mockDdbSend.mockRejectedValueOnce(new Error('DynamoDB error'));
+      mockDbSend.mockResolvedValueOnce({ Item: game });
+      mockDbSend.mockRejectedValueOnce(new Error('Database error'));
 
       const event = {
         ...mockEvent,
@@ -484,7 +481,7 @@ describe('WebSocket Handler Tests', () => {
     });
 
     test('should handle timeUp for non-existent game', async () => {
-      mockDdbSend.mockResolvedValueOnce({});
+      mockDbSend.mockResolvedValueOnce({});
 
       const event = {
         ...mockEvent,
@@ -501,7 +498,7 @@ describe('WebSocket Handler Tests', () => {
         gameId: 'game-1',
         turnState: 'WAITING'
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: game });
+      mockDbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -522,7 +519,7 @@ describe('WebSocket Handler Tests', () => {
         ],
         gameState: 'ENDED'
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: game });
+      mockDbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -545,7 +542,7 @@ describe('WebSocket Handler Tests', () => {
         ],
         gameState: 'IN_PROGRESS'
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: game });
+      mockDbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -568,8 +565,8 @@ describe('WebSocket Handler Tests', () => {
         ],
         gameState: 'ENDED'
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: game });
-      mockDdbSend.mockRejectedValueOnce(new Error('DynamoDB error'));
+      mockDbSend.mockResolvedValueOnce({ Item: game });
+      mockDbSend.mockRejectedValueOnce(new Error('Database error'));
 
       const event = {
         ...mockEvent,
@@ -630,7 +627,7 @@ describe('WebSocket Handler Tests', () => {
         { gameId: 'game-1', isPublic: true, gameState: 'WAITING' },
         { gameId: 'game-2', isPublic: true, gameState: 'WAITING' },
       ];
-      mockDdbSend.mockResolvedValueOnce({ Items: games });
+      mockDbSend.mockResolvedValueOnce({ Items: games });
 
       const result = await listPublicGames(mockEvent as APIGatewayEvent, {} as any, {} as any) as { statusCode: number, body: string };
 
@@ -647,7 +644,7 @@ describe('WebSocket Handler Tests', () => {
     });
 
     test('should handle errors when listing public games', async () => {
-      mockDdbSend.mockRejectedValueOnce(new Error('DynamoDB error'));
+      mockDbSend.mockRejectedValueOnce(new Error('Database error'));
 
       const result = await listPublicGames(mockEvent as APIGatewayEvent, {} as any, {} as any) as { statusCode: number, body: string };
 
@@ -666,7 +663,7 @@ describe('WebSocket Handler Tests', () => {
         ],
         spectators: [{ connectionId: 'spectator-1' }]
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: game });
+      mockDbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -675,23 +672,11 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnectionCommand).toHaveBeenCalledTimes(3);
-      expect(mockPostToConnectionCommand).toHaveBeenCalledWith({
-        ConnectionId: 'test-connection-123',
-        Data: JSON.stringify({ action: 'newEmoji', emoji: '👍' })
-      });
-      expect(mockPostToConnectionCommand).toHaveBeenCalledWith({
-        ConnectionId: 'test-connection-456',
-        Data: JSON.stringify({ action: 'newEmoji', emoji: '👍' })
-      });
-      expect(mockPostToConnectionCommand).toHaveBeenCalledWith({
-        ConnectionId: 'spectator-1',
-        Data: JSON.stringify({ action: 'newEmoji', emoji: '👍' })
-      });
+      expect(mockPublishGameEvent).toHaveBeenCalledWith('game-1', { action: 'newEmoji', emoji: '👍' });
     });
 
     test('should handle submitEmoji failure', async () => {
-      mockDdbSend.mockRejectedValueOnce(new Error('DynamoDB error'));
+      mockDbSend.mockRejectedValueOnce(new Error('Database error'));
 
       const event = {
         ...mockEvent,
@@ -713,7 +698,7 @@ describe('WebSocket Handler Tests', () => {
         ],
         gameState: 'WAITING'
       };
-      mockDdbSend.mockResolvedValueOnce({ Attributes: game });
+      mockDbSend.mockResolvedValueOnce({ Attributes: game });
 
       const event = {
         ...mockEvent,
@@ -723,9 +708,7 @@ describe('WebSocket Handler Tests', () => {
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
       expect(mockUpdateCommand).toHaveBeenCalledTimes(2);
-      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
-        Data: expect.stringContaining('gameStarted')
-      }));
+      expectRealtimeAction('gameStarted');
     });
 
     test('should not start the game if a non-owner requests it', async () => {
@@ -738,7 +721,7 @@ describe('WebSocket Handler Tests', () => {
         ],
         gameState: 'WAITING'
       };
-      mockDdbSend.mockResolvedValueOnce({ Attributes: game });
+      mockDbSend.mockResolvedValueOnce({ Attributes: game });
 
       const event = {
         ...mockEvent,
@@ -762,7 +745,7 @@ describe('WebSocket Handler Tests', () => {
         ],
         gameState: 'WAITING'
       };
-      mockDdbSend.mockResolvedValueOnce({ Attributes: game });
+      mockDbSend.mockResolvedValueOnce({ Attributes: game });
 
       const event = {
         ...mockEvent,
@@ -778,7 +761,7 @@ describe('WebSocket Handler Tests', () => {
     });
 
     test('should handle startGame failure', async () => {
-      mockDdbSend.mockRejectedValueOnce(new Error('DynamoDB error'));
+      mockDbSend.mockRejectedValueOnce(new Error('Database error'));
 
       const event = {
         ...mockEvent,
@@ -806,7 +789,7 @@ describe('WebSocket Handler Tests', () => {
         currentDescriberIndex: 0,
         wordOptions: ['apple', 'banana', 'orange']
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: game });
+      mockDbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -835,7 +818,7 @@ describe('WebSocket Handler Tests', () => {
         currentDescriberIndex: 0,
         wordOptions: ['apple', 'banana', 'orange']
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: game });
+      mockDbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -862,8 +845,8 @@ describe('WebSocket Handler Tests', () => {
         currentDescriberIndex: 0,
         wordOptions: ['apple', 'banana', 'orange']
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: game });
-      mockDdbSend.mockRejectedValueOnce(new Error('DynamoDB error'));
+      mockDbSend.mockResolvedValueOnce({ Item: game });
+      mockDbSend.mockRejectedValueOnce(new Error('Database error'));
 
       const event = {
         ...mockEvent,
@@ -890,7 +873,7 @@ describe('WebSocket Handler Tests', () => {
         maxRounds: 2,
         currentRound: 1
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: game });
+      mockDbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -900,9 +883,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
-        Data: expect.stringContaining('wordGuessed')
-      }));
+      expectRealtimeAction('wordGuessed');
     });
   });
 
@@ -1041,7 +1022,7 @@ describe('WebSocket Handler Tests', () => {
           ],
           gameState: 'WAITING'
         };
-        mockDdbSend.mockResolvedValueOnce({ Attributes: game });
+        mockDbSend.mockResolvedValueOnce({ Attributes: game });
 
         const event = {
           ...mockEvent,
@@ -1067,7 +1048,7 @@ describe('WebSocket Handler Tests', () => {
             timeLimit: 60,
             turnStartTime: new Date(Date.now() - 58 * 1000).toISOString(), // 2 seconds left
           };
-          mockDdbSend.mockResolvedValue({ Item: game });
+          mockDbSend.mockResolvedValue({ Item: game });
 
           const event = {
             ...mockEvent,
@@ -1076,9 +1057,7 @@ describe('WebSocket Handler Tests', () => {
 
           await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-          expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
-            Data: expect.stringContaining('timeUp')
-          }));
+          expectRealtimeAction('timeUp');
       });
   });
 
@@ -1094,7 +1073,7 @@ describe('WebSocket Handler Tests', () => {
         currentDescriberIndex: 0, // test-connection-123 is describer
         turnStartTime: new Date().toISOString()
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: game });
+      mockDbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -1120,7 +1099,7 @@ describe('WebSocket Handler Tests', () => {
         currentDescriberIndex: 1, // test-connection-456 is describer
         turnStartTime: new Date().toISOString()
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: game });
+      mockDbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -1129,9 +1108,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
-        Data: expect.stringContaining('newGuess')
-      }));
+      expectRealtimeAction('newGuess');
     });
 
     test('should handle non-existent player guess', async () => {
@@ -1143,7 +1120,7 @@ describe('WebSocket Handler Tests', () => {
         secretWord: 'apple',
         currentDescriberIndex: 0
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: game });
+      mockDbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -1165,7 +1142,7 @@ describe('WebSocket Handler Tests', () => {
           { connectionId: 'other-connection', name: 'Player 1', sessionId: 'test-session-123', lastSeen: new Date().toISOString() },
         ]
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: game });
+      mockDbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -1176,13 +1153,11 @@ describe('WebSocket Handler Tests', () => {
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
       expect(mockUpdateCommand).toHaveBeenCalled();
-      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
-        Data: expect.stringContaining('playerNameUpdated')
-      }));
+      expectRealtimeAction('playerNameUpdated');
     });
 
     test('should handle non-existent game', async () => {
-      mockDdbSend.mockResolvedValueOnce({});
+      mockDbSend.mockResolvedValueOnce({});
 
       const event = {
         ...mockEvent,
@@ -1206,7 +1181,7 @@ describe('WebSocket Handler Tests', () => {
         ],
         gameState: 'WAITING'
       };
-      mockDdbSend.mockResolvedValueOnce({ Items: [game] });
+      mockDbSend.mockResolvedValueOnce({ Items: [game] });
 
       const event = {
         ...mockEvent,
@@ -1229,7 +1204,7 @@ describe('WebSocket Handler Tests', () => {
         ],
         gameState: 'WAITING'
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: game });
+      mockDbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -1254,7 +1229,7 @@ describe('WebSocket Handler Tests', () => {
         ],
         gameState: 'ENDED'
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: game });
+      mockDbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -1278,7 +1253,7 @@ describe('WebSocket Handler Tests', () => {
         ],
         gameState: 'ENDED'
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: game });
+      mockDbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -1301,7 +1276,7 @@ describe('WebSocket Handler Tests', () => {
         ],
         gameState: 'WAITING'
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: game });
+      mockDbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -1316,7 +1291,7 @@ describe('WebSocket Handler Tests', () => {
     });
 
     test('should handle non-existent game', async () => {
-      mockDdbSend.mockResolvedValueOnce({});
+      mockDbSend.mockResolvedValueOnce({});
 
       const event = {
         ...mockEvent,
@@ -1343,7 +1318,7 @@ describe('WebSocket Handler Tests', () => {
         ],
         gameState: 'ENDED'
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: game });
+      mockDbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -1372,7 +1347,7 @@ describe('WebSocket Handler Tests', () => {
         players: [{ connectionId: 'old-connection', name: 'Owner', sessionId: 'session-1' }],
         gameState: 'WAITING'
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: existingGame });
+      mockDbSend.mockResolvedValueOnce({ Item: existingGame });
 
       const joinGameEvent = {
         ...mockEvent,
@@ -1408,7 +1383,7 @@ describe('WebSocket Handler Tests', () => {
         secretWord: 'apple',
         currentHint: 'A _ _ _ _'
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: existingGame });
+      mockDbSend.mockResolvedValueOnce({ Item: existingGame });
 
       const joinGameEvent = {
         ...mockEvent,
@@ -1442,7 +1417,7 @@ describe('WebSocket Handler Tests', () => {
         turnState: 'CHOOSING_WORD',
         wordOptions: ['apple', 'banana', 'orange']
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: existingGame });
+      mockDbSend.mockResolvedValueOnce({ Item: existingGame });
 
       const joinGameEvent = {
         ...mockEvent,
@@ -1476,7 +1451,7 @@ describe('WebSocket Handler Tests', () => {
         turnState: 'DESCRIBING',
         secretWord: 'elephant'
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: existingGame });
+      mockDbSend.mockResolvedValueOnce({ Item: existingGame });
 
       const joinGameEvent = {
         ...mockEvent,
@@ -1505,7 +1480,7 @@ describe('WebSocket Handler Tests', () => {
         secretWord: 'apple',
         turnStartTime: new Date().toISOString()
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: game });
+      mockDbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -1523,7 +1498,7 @@ describe('WebSocket Handler Tests', () => {
         turnState: 'DESCRIBING',
         turnStartTime: new Date().toISOString()
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: game });
+      mockDbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -1551,7 +1526,7 @@ describe('WebSocket Handler Tests', () => {
         currentRound: 1,
         maxRounds: 2
       };
-      mockDdbSend.mockResolvedValue({ Item: game });
+      mockDbSend.mockResolvedValue({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -1560,9 +1535,7 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
-        Data: expect.stringContaining('timeUp')
-      }));
+      expectRealtimeAction('timeUp');
     });
   });
 
@@ -1579,7 +1552,7 @@ describe('WebSocket Handler Tests', () => {
         currentDescriberIndex: 1, // test-connection-456 is describer
         wordOptions: ['apple', 'banana', 'orange']
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: game });
+      mockDbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -1604,7 +1577,7 @@ describe('WebSocket Handler Tests', () => {
         currentDescriberIndex: 0
         // No wordOptions
       };
-      mockDdbSend.mockResolvedValueOnce({ Item: game });
+      mockDbSend.mockResolvedValueOnce({ Item: game });
 
       const event = {
         ...mockEvent,
@@ -1621,7 +1594,7 @@ describe('WebSocket Handler Tests', () => {
 
   describe('disconnect edge cases', () => {
     test('should handle disconnect when player not in any game', async () => {
-      mockDdbSend.mockResolvedValueOnce({ Items: [] });
+      mockDbSend.mockResolvedValueOnce({ Items: [] });
 
       const result = await disconnect(mockEvent as APIGatewayEvent, {} as any, {} as any);
 
@@ -1630,7 +1603,7 @@ describe('WebSocket Handler Tests', () => {
 
     test('should handle disconnect error gracefully', async () => {
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-      mockDdbSend.mockRejectedValueOnce(new Error('DB Error'));
+      mockDbSend.mockRejectedValueOnce(new Error('DB Error'));
 
       const result = await disconnect(mockEvent as APIGatewayEvent, {} as any, {} as any);
 
@@ -1645,7 +1618,7 @@ describe('WebSocket Handler Tests', () => {
       const games = [
         { gameId: 'game-1', isPublic: true, gameState: 'WAITING', players: [] },
       ];
-      mockDdbSend.mockResolvedValueOnce({ Items: games });
+      mockDbSend.mockResolvedValueOnce({ Items: games });
 
       const event = {
         ...mockEvent,
@@ -1660,7 +1633,7 @@ describe('WebSocket Handler Tests', () => {
     });
 
     test('should handle error when listing public games via WebSocket', async () => {
-      mockDdbSend.mockRejectedValueOnce(new Error('DB Error'));
+      mockDbSend.mockRejectedValueOnce(new Error('DB Error'));
 
       const event = {
         ...mockEvent,

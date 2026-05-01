@@ -11,6 +11,16 @@ if [ -z "$AWS_PROFILE" ] && [ -z "$AWS_ACCESS_KEY_ID" ]; then
     exit 1
 fi
 
+if [ -z "$SUPABASE_URL" ] || [ -z "$SUPABASE_SERVICE_ROLE_KEY" ]; then
+    echo "❌ Supabase backend credentials not configured. Please set SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY."
+    exit 1
+fi
+
+if [ -z "$SUPABASE_PUBLISHABLE_KEY" ]; then
+    echo "❌ Supabase frontend key not configured. Please set SUPABASE_PUBLISHABLE_KEY."
+    exit 1
+fi
+
 # Deploy backend
 echo "📦 Deploying backend..."
 cd backend
@@ -29,6 +39,8 @@ yarn install
 
 # Create production environment file
 echo "REACT_APP_WS_URL=${WS_URL}" > .env.production
+echo "REACT_APP_SUPABASE_URL=${SUPABASE_URL}" >> .env.production
+echo "REACT_APP_SUPABASE_ANON_KEY=${SUPABASE_PUBLISHABLE_KEY}" >> .env.production
 
 # Build frontend
 yarn build

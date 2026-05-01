@@ -23,8 +23,7 @@
   },
   "dependencies": {
     "@aws-sdk/client-apigatewaymanagementapi": "^3.0.0",
-    "@aws-sdk/client-dynamodb": "^3.0.0",
-    "@aws-sdk/lib-dynamodb": "^3.0.0",
+    "@supabase/supabase-js": "^2.105.1",
     "compromise": "^14.11.0",
     "random-words": "^2.0.1",
     "uuid": "^11.1.0"

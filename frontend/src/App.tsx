@@ -2,6 +2,7 @@ import React, { useState, useEffect, FormEvent, useRef, useCallback } from 'reac
 import './App.css';
 import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
 import { playSound } from './sounds';
+import { supabase } from './supabase';
 
 interface Player {
   connectionId: string;
@@ -364,6 +365,52 @@ const App: React.FC = () => {
     pendingTimeoutsRef.current = [];
     setRoundTimeLeft(null);
   }, [timerInterval]);
+
+  useEffect(() => {
+    if (!supabase || !game?.gameId) {
+      return;
+    }
+
+    const supabaseClient = supabase;
+    const channel = supabaseClient
+      .channel(`game:${game.gameId}`)
+      .on('broadcast', { event: 'game_status' }, (payload) => {
+        const updatedGame = payload.payload as Game | undefined;
+        if (!updatedGame || updatedGame.gameId !== game.gameId) {
+          return;
+        }
+
+        setGame(updatedGame);
+
+        if (updatedGame.gameState === 'IN_PROGRESS' && updatedGame.turnState === 'DESCRIBING') {
+          if (updatedGame.currentHint !== undefined) {
+            setCurrentHint(updatedGame.currentHint);
+          }
+          startRoundTimer(updatedGame);
+        }
+
+        if (updatedGame.gameState === 'ENDED') {
+          setIsDescriber(false);
+          setIsChoosingWord(false);
+          setSecretWord('');
+          setCurrentHint('');
+          setWordOptions([]);
+          setEmojis([]);
+          clearRoundTimer();
+        }
+      })
+      .on('broadcast', { event: 'game_event' }, (payload) => {
+        handleMessage(payload.payload as WebSocketIncomingMessage);
+      })
+      .subscribe();
+
+    return () => {
+      supabaseClient.removeChannel(channel);
+    };
+    // handleMessage intentionally stays outside the dependency list so this subscription
+    // is recreated only when the active game channel changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [game?.gameId, startRoundTimer, clearRoundTimer]);
 
   const onEmojiClick = (emojiData: EmojiClickData) => {
     if (game) {

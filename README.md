@@ -18,7 +18,7 @@ Emoji Guesser is a fun, real-time multiplayer game where players test their emoj
 -   **Web Frontend:** React, TypeScript, Create React App, Emoji Picker
 -   **Android App:** Kotlin, Jetpack Compose, Material3, OkHttp WebSockets
 -   **Backend:** Node.js, TypeScript, Serverless Framework
--   **Infrastructure:** AWS Lambda, API Gateway (WebSockets), DynamoDB for data persistence.
+-   **Infrastructure:** AWS Lambda, API Gateway (WebSockets), Supabase Postgres and Supabase Realtime for game state persistence and sync.
 -   **CI/CD:** GitHub Actions for automated testing and deployment, Codecov for test coverage tracking.
 
 ## 📂 Project Structure
@@ -41,6 +41,7 @@ emoji-guesser/
 -   Yarn
 -   Serverless Framework (`npm install -g serverless`)
 -   Configured AWS Credentials
+-   Supabase project with the schema in `backend/supabase/schema.sql` applied
 -   For Android: Android Studio, JDK 17
 
 ### Local Development
@@ -53,6 +54,13 @@ emoji-guesser/
 
 2.  **Deploy the Backend:**
     The frontend requires a running backend to connect to.
+    Configure these environment variables before deploying:
+    ```bash
+    export SUPABASE_URL=https://your-project.supabase.co
+    export SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
+    export SUPABASE_PUBLISHABLE_KEY=your-publishable-key
+    export SUPABASE_GAMES_TABLE=games
+    ```
     ```bash
     cd backend
     yarn sls deploy
@@ -63,6 +71,15 @@ emoji-guesser/
     -   Copy the `wss://...` URL.
     -   Create a `.env` file in the `frontend` directory by copying the example: `cp frontend/.env.example frontend/.env`.
     -   Paste the WebSocket URL into `frontend/.env` for the `REACT_APP_WS_URL` variable.
+    -   Add your Supabase URL and anon or publishable key for the `REACT_APP_SUPABASE_URL` and `REACT_APP_SUPABASE_ANON_KEY` variables.
+
+For GitHub Actions deployments, configure these repository secrets:
+
+| Secret | Description |
+|--------|-------------|
+| `SUPABASE_URL` | Supabase project API URL |
+| `SUPABASE_SERVICE_ROLE_KEY` | Backend-only service role key |
+| `SUPABASE_PUBLISHABLE_KEY` | Frontend Supabase publishable key |
 
 4.  **Start the Frontend:**
     ```bash
