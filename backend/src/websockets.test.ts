@@ -79,10 +79,7 @@ describe('WebSocket Handler Tests', () => {
         statusCode: 200,
         body: 'Connected'
       });
-      expect(mockPostToConnectionCommand).toHaveBeenCalledWith({
-        ConnectionId: 'test-connection-123',
-        Data: JSON.stringify({ action: 'connected', connectionId: 'test-connection-123' })
-      });
+      expect(mockPostToConnectionCommand).not.toHaveBeenCalled();
     });
   });
 
@@ -1001,6 +998,21 @@ describe('WebSocket Handler Tests', () => {
         await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
         // No error should be thrown, and console.error should not be called for 410 errors
+        expect(consoleErrorSpy).not.toHaveBeenCalled();
+        consoleErrorSpy.mockRestore();
+      });
+
+    test('should handle AWS SDK v3 stale connection errors', async () => {
+        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+        mockApgSend.mockRejectedValueOnce({ $metadata: { httpStatusCode: 410 } });
+
+        const event = {
+          ...mockEvent,
+          body: JSON.stringify({ action: 'createGame', playerName: 'Test Player' })
+        };
+
+        await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
         expect(consoleErrorSpy).not.toHaveBeenCalled();
         consoleErrorSpy.mockRestore();
       });

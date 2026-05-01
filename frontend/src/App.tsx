@@ -122,7 +122,7 @@ const App: React.FC = () => {
 
   // Load saved player data on mount
   useEffect(() => {
-    const savedSessionId = localStorage.getItem('emoji-guesser-session');
+    const savedSessionId = sessionStorage.getItem('emoji-guesser-session');
     const savedPlayerName = localStorage.getItem('emoji-guesser-player-name');
     
     if (savedSessionId) {
@@ -133,7 +133,7 @@ const App: React.FC = () => {
         ? crypto.randomUUID()
         : `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       setSessionId(newSessionId);
-      localStorage.setItem('emoji-guesser-session', newSessionId);
+      sessionStorage.setItem('emoji-guesser-session', newSessionId);
     }
     
     if (savedPlayerName) {
@@ -418,6 +418,16 @@ const App: React.FC = () => {
     }
   };
 
+  const syncConnectionIdFromGame = (nextGame?: Game) => {
+    if (!nextGame || !sessionId) return;
+    const currentPlayer = nextGame.players.find(player => player.sessionId === sessionId);
+    const currentSpectator = nextGame.spectators?.find(player => player.sessionId === sessionId);
+    const currentConnectionId = currentPlayer?.connectionId || currentSpectator?.connectionId;
+    if (currentConnectionId) {
+      setConnectionId(currentConnectionId);
+    }
+  };
+
   const handleMessage = (data: WebSocketIncomingMessage) => {
     switch (data.action) {
       case 'connected':
@@ -433,6 +443,7 @@ const App: React.FC = () => {
       case 'playerJoined':
         playSound('playerJoined');
         setGame(data.game);
+        syncConnectionIdFromGame(data.game);
         setIsLoading(false);
         if (data.game.gameState === 'IN_PROGRESS') {
           startRoundTimer(data.game);
@@ -440,11 +451,13 @@ const App: React.FC = () => {
         break;
       case 'spectatorJoined':
         setGame(data.game);
+        syncConnectionIdFromGame(data.game);
         setIsSpectator(true);
         break;
       case 'playerNameUpdated':
       case 'playerReconnected':
         setGame(data.game);
+        syncConnectionIdFromGame(data.game);
         if (data.action === 'playerReconnected') {
           // Don't show message for own reconnection
         }
@@ -453,6 +466,7 @@ const App: React.FC = () => {
       case 'gameStarted':
         playSound('gameStart');
         setGame(data.game);
+        syncConnectionIdFromGame(data.game);
         setIsLoading(false);
         setEmojis([]); // Clear emojis from previous rounds
         setMessages([

@@ -18,6 +18,10 @@ const getApiGatewayManagementApi = (event: APIGatewayEvent) => {
     });
 };
 
+const getHttpStatusCode = (error: any): number | undefined => {
+    return error?.statusCode || error?.$metadata?.httpStatusCode;
+};
+
 const sendMessageToClient = async (connectionId: string, payload: any, event: APIGatewayEvent) => {
     try {
         const apiGateway = getApiGatewayManagementApi(event);
@@ -26,7 +30,7 @@ const sendMessageToClient = async (connectionId: string, payload: any, event: AP
             Data: JSON.stringify(payload),
         }));
     } catch (e: any) {
-        if (e.statusCode !== 410) {
+        if (getHttpStatusCode(e) !== 410) {
             console.error(`Failed to send message to ${connectionId}:`, e);
         }
     }
@@ -356,9 +360,6 @@ async function handleNormalDisconnect(game: any, updatedPlayers: any[], connecti
 export const connect: APIGatewayProxyHandler = async (event) => {
   const { connectionId } = event.requestContext;
   console.log('New connection', connectionId);
-  if (connectionId) {
-    await sendMessageToClient(connectionId, { action: 'connected', connectionId }, event as APIGatewayEvent);
-  }
   return { statusCode: 200, body: 'Connected' };
 };
 

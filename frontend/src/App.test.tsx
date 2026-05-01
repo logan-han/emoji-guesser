@@ -9,14 +9,18 @@ jest.mock('./sounds', () => ({
   playSound: jest.fn(),
 }));
 
-// Mock localStorage
-const localStorageMock = {
+const createStorageMock = () => ({
   getItem: jest.fn(),
   setItem: jest.fn(),
   clear: jest.fn(),
   removeItem: jest.fn(),
-};
+});
+
+// Mock browser storage
+const localStorageMock = createStorageMock();
+const sessionStorageMock = createStorageMock();
 global.localStorage = localStorageMock as any;
+global.sessionStorage = sessionStorageMock as any;
 
 // Mock window.alert
 const mockAlert = jest.fn();
@@ -54,6 +58,7 @@ describe('App Component', () => {
     jest.clearAllMocks();
     mockWebSocketInstances.length = 0;
     localStorageMock.getItem.mockReturnValue(null);
+    sessionStorageMock.getItem.mockReturnValue(null);
     window.history.pushState = jest.fn();
     mockAlert.mockClear();
   });
@@ -991,16 +996,30 @@ describe('App Component', () => {
     });
   });
 
-  test('loads saved session from localStorage', async () => {
+  test('loads saved session from sessionStorage', async () => {
     // Access the original mock from beforeEach
-    const storedData: Record<string, string> = {
+    const sessionData: Record<string, string> = {
       'emoji-guesser-session': 'saved-session-123',
+    };
+    const localData: Record<string, string> = {
       'emoji-guesser-player-name': 'SavedPlayerName'
     };
 
+    Object.defineProperty(window, 'sessionStorage', {
+      value: {
+        getItem: jest.fn((key: string) => sessionData[key] || null),
+        setItem: jest.fn(),
+        removeItem: jest.fn(),
+        clear: jest.fn(),
+        key: jest.fn(),
+        length: 0,
+      },
+      writable: true,
+    });
+
     Object.defineProperty(window, 'localStorage', {
       value: {
-        getItem: jest.fn((key: string) => storedData[key] || null),
+        getItem: jest.fn((key: string) => localData[key] || null),
         setItem: jest.fn(),
         removeItem: jest.fn(),
         clear: jest.fn(),
