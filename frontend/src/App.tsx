@@ -139,6 +139,8 @@ const App: React.FC = () => {
   const [lastGuessTime, setLastGuessTime] = useState<number>(0); // Rate limiting for guesses
   const [reconnectTrigger, setReconnectTrigger] = useState<number>(0); // Trigger WebSocket reconnection
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const connectionIdRef = useRef<string | null>(null);
+  const sessionIdRef = useRef<string>('');
   const roundTimerIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const timeUpSentRef = useRef<boolean>(false); // Track if timeUp was already sent for current round
   const activeRoundTimerKeyRef = useRef<string | null>(null);
@@ -172,12 +174,27 @@ const App: React.FC = () => {
 
   // Load saved player data on mount
   useEffect(() => {
+    sessionIdRef.current = sessionId;
+  }, [sessionId]);
+
+  useEffect(() => {
+    connectionIdRef.current = connectionId;
+  }, [connectionId]);
+
+  const updateConnectionId = useCallback((nextConnectionId: string | null) => {
+    connectionIdRef.current = nextConnectionId;
+    setConnectionId(nextConnectionId);
+  }, []);
+
+  // Load saved player data on mount
+  useEffect(() => {
     const savedSessionId = sessionStorage.getItem('emoji-guesser-session');
     const savedPlayerName = localStorage.getItem('emoji-guesser-player-name');
     const urlParams = new URLSearchParams(window.location.search);
     const gameId = urlParams.get('gameId');
     
     if (savedSessionId) {
+      sessionIdRef.current = savedSessionId;
       setSessionId(savedSessionId);
     } else {
       // Use crypto.randomUUID() for secure session ID generation
@@ -185,6 +202,7 @@ const App: React.FC = () => {
         ? crypto.randomUUID()
         : `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       setSessionId(newSessionId);
+      sessionIdRef.current = newSessionId;
       sessionStorage.setItem('emoji-guesser-session', newSessionId);
     }
     
@@ -448,6 +466,8 @@ const App: React.FC = () => {
         }
 
         setGame(updatedGame);
+        syncConnectionIdFromGame(updatedGame);
+        syncRoleFromGame(updatedGame);
 
         if (updatedGame.gameState === 'IN_PROGRESS' && updatedGame.turnState === 'DESCRIBING') {
           if (updatedGame.currentHint !== undefined) {
@@ -485,24 +505,59 @@ const App: React.FC = () => {
     }
   };
 
+  const isCurrentPlayer = (player: Player) => {
+    const currentConnectionId = connectionIdRef.current || connectionId;
+    const currentSessionId = sessionIdRef.current || sessionId;
+    return player.connectionId === currentConnectionId ||
+           Boolean(currentSessionId && player.sessionId === currentSessionId);
+  };
+
+  const isCurrentDescriberForGame = (nextGame?: Game) => {
+    if (!nextGame || nextGame.currentDescriberIndex === undefined) return false;
+    const describer = nextGame.players[nextGame.currentDescriberIndex];
+    return Boolean(describer && isCurrentPlayer(describer));
+  };
+
   const syncConnectionIdFromGame = (nextGame?: Game) => {
-    if (!nextGame || !sessionId) return;
-    const currentPlayer = nextGame.players.find(player => player.sessionId === sessionId);
-    const currentSpectator = nextGame.spectators?.find(player => player.sessionId === sessionId);
+    const currentSessionId = sessionIdRef.current || sessionId;
+    if (!nextGame || !currentSessionId) return;
+    const currentPlayer = nextGame.players.find(player => player.sessionId === currentSessionId);
+    const currentSpectator = nextGame.spectators?.find(player => player.sessionId === currentSessionId);
     const currentConnectionId = currentPlayer?.connectionId || currentSpectator?.connectionId;
     if (currentConnectionId) {
-      setConnectionId(currentConnectionId);
+      updateConnectionId(currentConnectionId);
+    }
+  };
+
+  const syncRoleFromGame = (nextGame?: Game) => {
+    if (!nextGame) return;
+
+    if (nextGame.gameState !== 'IN_PROGRESS') {
+      setIsDescriber(false);
+      setIsChoosingWord(false);
+      setSecretWord('');
+      return;
+    }
+
+    if (nextGame.turnState === 'DESCRIBING') {
+      const nextIsDescriber = isCurrentDescriberForGame(nextGame);
+      setIsDescriber(nextIsDescriber);
+      if (!nextIsDescriber) {
+        setSecretWord('');
+      }
+    } else if (nextGame.turnState === 'CHOOSING_WORD') {
+      setIsDescriber(false);
     }
   };
 
   const handleMessage = (data: WebSocketIncomingMessage) => {
     switch (data.action) {
       case 'connected':
-        setConnectionId(data.connectionId);
+        updateConnectionId(data.connectionId);
         break;
       case 'gameCreated':
         setGame(data.game);
-        setConnectionId(data.game.ownerId);
+        updateConnectionId(data.game.ownerId);
         setIsLoading(false);
         console.log('Game created:', data.game);
         window.history.pushState({}, '', `?gameId=${data.game.gameId}`);
@@ -511,6 +566,7 @@ const App: React.FC = () => {
         playSound('playerJoined');
         setGame(data.game);
         syncConnectionIdFromGame(data.game);
+        syncRoleFromGame(data.game);
         setIsLoading(false);
         if (data.game.gameState === 'IN_PROGRESS') {
           startRoundTimer(data.game);
@@ -519,12 +575,14 @@ const App: React.FC = () => {
       case 'spectatorJoined':
         setGame(data.game);
         syncConnectionIdFromGame(data.game);
+        syncRoleFromGame(data.game);
         setIsSpectator(true);
         break;
       case 'playerNameUpdated':
       case 'playerReconnected':
         setGame(data.game);
         syncConnectionIdFromGame(data.game);
+        syncRoleFromGame(data.game);
         if (data.action === 'playerReconnected') {
           // Don't show message for own reconnection
         }
@@ -534,6 +592,7 @@ const App: React.FC = () => {
         playSound('gameStart');
         setGame(data.game);
         syncConnectionIdFromGame(data.game);
+        syncRoleFromGame(data.game);
         setIsLoading(false);
         setEmojis([]); // Clear emojis from previous rounds
         setMessages([
@@ -583,11 +642,15 @@ const App: React.FC = () => {
         // Start timer when describing begins - use the game data from the server
         if (data.game) {
           setGame(data.game);
+          syncConnectionIdFromGame(data.game);
           startRoundTimer(data.game);
         }
         break;
       case 'turnStarted':
         setGame(data.game);
+        syncConnectionIdFromGame(data.game);
+        syncRoleFromGame(data.game);
+        setIsChoosingWord(false);
         setEmojis([]); // Clear emojis for new turn
         setCurrentHint(data.hint || '');
         if (data.game.currentDescriberIndex !== undefined && data.game.players[data.game.currentDescriberIndex]) {
@@ -620,11 +683,14 @@ const App: React.FC = () => {
           timestamp: Date.now()
         }]);
         setGame(data.game);
+        syncConnectionIdFromGame(data.game);
+        syncRoleFromGame(data.game);
         // Clear timer when word is guessed
         clearRoundTimer();
         break;
       case 'nextTurn':
         setGame(data.game);
+        syncConnectionIdFromGame(data.game);
         setIsDescriber(false);
         setIsChoosingWord(false);
         setSecretWord('');
@@ -684,6 +750,8 @@ const App: React.FC = () => {
         break;
       case 'playerRejoined':
         setGame(data.game);
+        syncConnectionIdFromGame(data.game);
+        syncRoleFromGame(data.game);
         setMessages(prev => [...prev, { 
           text: `🔄 ${data.rejoinedPlayer} has rejoined the game!`, 
           type: 'system', 
@@ -708,6 +776,8 @@ const App: React.FC = () => {
         break;
       case 'playerLeft':
         setGame(data.game);
+        syncConnectionIdFromGame(data.game);
+        syncRoleFromGame(data.game);
         // Clear round timer if the game ended due to player disconnect
         if (data.game.gameState === 'ENDED') {
           clearRoundTimer();
@@ -794,12 +864,6 @@ const App: React.FC = () => {
       sendMessage({ action: 'updatePlayerName', gameId: game.gameId, name: sanitizedName, sessionId });
     }
     setEditingName(false);
-  };
-
-  // Helper function to check if a player is the current user
-  const isCurrentPlayer = (player: Player) => {
-    return player.connectionId === connectionId || 
-           (sessionId && player.sessionId === sessionId);
   };
 
   // Helper function to copy invite link with feedback

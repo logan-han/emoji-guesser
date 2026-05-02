@@ -872,6 +872,67 @@ describe('App Component', () => {
     });
   });
 
+  test('clears describer view when another player starts describing', async () => {
+    render(<App />);
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+    const firstTurnStartTime = new Date().toISOString();
+
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'describeWord',
+          word: 'origin',
+          game: {
+            gameId: 'GAME123',
+            gameState: 'IN_PROGRESS',
+            players: [
+              { name: 'TestPlayer', connectionId: 'test-conn', score: 0 },
+              { name: 'Lucky Noodle 75', connectionId: 'other-conn', score: 0 }
+            ],
+            currentRound: 1,
+            currentDescriberIndex: 0,
+            turnState: 'DESCRIBING',
+            turnStartTime: firstTurnStartTime,
+            timeLimit: 120
+          }
+        })
+      });
+    });
+
+    await waitFor(() => expect(screen.getByText('origin')).toBeInTheDocument());
+    expect(screen.getByText(/You're describing/)).toBeInTheDocument();
+
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'turnStarted',
+          hint: '_ _ _ _ _',
+          game: {
+            gameId: 'GAME123',
+            gameState: 'IN_PROGRESS',
+            players: [
+              { name: 'TestPlayer', connectionId: 'test-conn', score: 0 },
+              { name: 'Lucky Noodle 75', connectionId: 'other-conn', score: 0 }
+            ],
+            currentRound: 1,
+            currentDescriberIndex: 1,
+            turnState: 'DESCRIBING',
+            turnStartTime: new Date(Date.now() + 1000).toISOString(),
+            timeLimit: 120
+          }
+        })
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText('origin')).not.toBeInTheDocument();
+      expect(screen.getByText(/Lucky Noodle 75 is now describing/)).toBeInTheDocument();
+    });
+    expect(screen.getByPlaceholderText('Type your guess...')).toBeInTheDocument();
+  });
+
   test('does not stack round timer intervals when the same turn is refreshed', async () => {
     jest.useFakeTimers();
 
