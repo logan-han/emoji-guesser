@@ -88,6 +88,25 @@ const generateRandomPlayerName = (): string => {
   return `${adjective} ${noun} ${suffix}`;
 };
 
+const avatarColors = ['var(--tomato)', 'var(--teal)', 'var(--gold)', 'var(--plum)', 'var(--sage)'];
+
+const getInitials = (name: string): string => (
+  name
+    .split(' ')
+    .map(part => part[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join('')
+    .toUpperCase() || '?'
+);
+
+const formatTime = (seconds: number | null): string => {
+  const safeSeconds = Math.max(0, seconds ?? 0);
+  const minutes = Math.floor(safeSeconds / 60).toString().padStart(2, '0');
+  const remainder = (safeSeconds % 60).toString().padStart(2, '0');
+  return `${minutes}:${remainder}`;
+};
+
 const App: React.FC = () => {
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [connectionId, setConnectionId] = useState<string | null>(null);
@@ -848,469 +867,536 @@ const App: React.FC = () => {
     window.history.pushState({}, '', window.location.pathname);
   };
 
-  return (
-    <div className="app">
-      <h1>🎮 Emoji Guesser</h1>
-      <div className="connection-status">
-        Status: <span className={connected ? 'connected' : 'disconnected'}>
-          {connected ? '🟢 Connected' : '🔴 Disconnected'}
-        </span>
-        {!connected && reconnectAttemptsRef.current < maxReconnectAttempts && (
-          <span className="reconnecting"> (Reconnecting...)</span>
-        )}
-        {!connected && reconnectAttemptsRef.current >= maxReconnectAttempts && (
-          <button
-            onClick={() => {
-              reconnectAttemptsRef.current = 0;
-              setReconnectTrigger(t => t + 1);
-            }}
-            className="reconnect-btn"
-          >
-            🔄 Reconnect
-          </button>
-        )}
+  const activePlayers = game?.players.filter((p: Player) => p.wantsToPlayAgain !== false) || [];
+  const sortedPlayers = [...(game?.players || [])].sort((a, b) => b.score - a.score);
+  const currentDescriber = game?.currentDescriberIndex !== undefined
+    ? game.players[game.currentDescriberIndex]
+    : undefined;
+  const hintLetters = currentHint ? currentHint.split('') : [];
+  const inviteLink = game ? `${window.location.origin}${window.location.pathname}?gameId=${game.gameId}` : '';
+  const statusText = connected ? 'Connected' : reconnectAttemptsRef.current < maxReconnectAttempts ? 'Reconnecting...' : 'Disconnected';
+  const roundLabel = game?.currentRound && game?.maxRounds
+    ? `Round ${game.currentRound} / ${game.maxRounds}`
+    : `Round ${game?.currentRound || 1}`;
+
+  const renderAvatar = (name: string, color = 'var(--accent)', size = 32) => (
+    <div className="av" style={{ width: size, height: size, background: color, fontSize: size * 0.4 }}>
+      {getInitials(name)}
+    </div>
+  );
+
+  const renderChatMessage = (msg: Message, index: number) => {
+    if (msg.type === 'system') {
+      return <div key={index} className="msg system">{msg.text}</div>;
+    }
+
+    const [who, ...bodyParts] = msg.text.includes(':') ? msg.text.split(':') : ['Guess', msg.text];
+    return (
+      <div key={index} className={`msg ${msg.type === 'emoji' ? 'correct' : ''}`}>
+        <span className="sr-only">{msg.text}</span>
+        <span className="who">{who}</span>
+        <span className="body">{bodyParts.join(':').trim() || msg.text}</span>
       </div>
+    );
+  };
+
+  return (
+    <div className="shell app" data-theme="confetti" data-accent="tomato">
+      <header className="topbar">
+        <button className="brand brand-button" onClick={backToLobby} type="button">
+          <div className="brand-mark">🎭</div>
+          <div>
+            <div className="brand-name">emoji <em>guesser</em></div>
+            <div className="brand-tag">Multiplayer · Real-time</div>
+            <span className="sr-only">🎮 Emoji Guesser</span>
+          </div>
+        </button>
+        <div className="topbar-right">
+          <div className={`conn-pill ${connected ? '' : 'off'}`}>
+            <span className="conn-dot" />
+            <span>{statusText}</span>
+          </div>
+          <span className="sr-only">Status: {connected ? '🟢 Connected' : '🔴 Disconnected'}</span>
+          {!connected && reconnectAttemptsRef.current >= maxReconnectAttempts && (
+            <button
+              onClick={() => {
+                reconnectAttemptsRef.current = 0;
+                setReconnectTrigger(t => t + 1);
+              }}
+              className="btn btn-ghost btn-sm"
+            >
+              Reconnect
+            </button>
+          )}
+        </div>
+      </header>
 
       {errorMessage && (
         <div className="error-notification" role="alert">
-          <span>⚠️ {errorMessage}</span>
-          <button onClick={() => setErrorMessage(null)} className="dismiss-error" aria-label="Dismiss error">
+          <span>{errorMessage}</span>
+          <button onClick={() => setErrorMessage(null)} className="btn btn-ghost btn-sm" aria-label="Dismiss error">
             ✕
           </button>
         </div>
       )}
 
       {!game && (
-        <div className="lobby">
-          <div className="game-actions">
-            <div className="lobby-name-section">
-              <label htmlFor="lobby-player-name">Your name</label>
-              <input
-                id="lobby-player-name"
-                type="text"
-                placeholder="Enter your name"
-                value={playerName}
-                onChange={(e) => setPlayerName(e.target.value)}
-                className="player-name-input"
-                minLength={1}
-                maxLength={20}
-                autoComplete="nickname"
-              />
-              {pendingGameId && (
-                <small>Joining game {pendingGameId}</small>
+        <div data-screen-label="01 Lobby">
+          <section className="hero">
+            <div>
+              <p className="eyebrow">Quick game · No download</p>
+              <h1 className="hero-title">
+                Describe it<br />
+                with <em>emoji.</em>
+                <br />Beat your friends.
+              </h1>
+              <p className="hero-sub">
+                One player gets a secret word. They describe it using only emoji.
+                Everyone else races to guess. Best score after the final round wins.
+              </p>
+            </div>
+            <div className="hero-side" aria-hidden="true">
+              <div className="hero-tile">🗼</div>
+              <div className="hero-tile">🌊</div>
+              <div className="hero-tile">💡</div>
+            </div>
+          </section>
+
+          <div className="lobby-grid">
+            <div className="card create-card">
+              <p className="eyebrow">Start playing</p>
+              <h2 className="section-title">Create a <em>new room</em></h2>
+
+              <div className="field form-spacer">
+                <label className="field-label" htmlFor="lobby-player-name">Your name</label>
+                <input
+                  id="lobby-player-name"
+                  type="text"
+                  placeholder="Enter your name"
+                  value={playerName}
+                  onChange={(e) => setPlayerName(e.target.value)}
+                  className="input"
+                  minLength={1}
+                  maxLength={20}
+                  autoComplete="nickname"
+                />
+                {pendingGameId && <small>Joining game {pendingGameId}</small>}
+              </div>
+
+              <div className="field">
+                <label className="field-label">Visibility</label>
+                <div className="segmented" role="tablist" aria-label="Game visibility">
+                  <button type="button" role="tab" aria-selected={isPublic} onClick={() => setIsPublic(true)}>
+                    <span>🌍</span> Public Game
+                  </button>
+                  <button type="button" role="tab" aria-selected={!isPublic} onClick={() => setIsPublic(false)}>
+                    <span>🔒</span> Private Game
+                  </button>
+                </div>
+                <label className="sr-only">
+                  <input type="radio" name="gameType" value="private" checked={!isPublic} onChange={() => setIsPublic(false)} />
+                  Private Game
+                </label>
+                <label className="sr-only">
+                  <input type="radio" name="gameType" value="public" checked={isPublic} onChange={() => setIsPublic(true)} />
+                  Public Game
+                </label>
+              </div>
+
+              <div className="row-2">
+                <div className="field field-compact">
+                  <label className="field-label" htmlFor="lobby-rounds">Rounds</label>
+                  <select id="lobby-rounds" className="input" value={maxRounds} onChange={(e) => setMaxRounds(Number(e.target.value))}>
+                    {[2, 3, 4, 5].map(rounds => <option key={rounds} value={rounds}>{rounds} rounds</option>)}
+                  </select>
+                </div>
+                <div className="field field-compact">
+                  <label className="field-label" htmlFor="lobby-time-limit">Round time</label>
+                  <select id="lobby-time-limit" className="input" value={timeLimit} onChange={(e) => setTimeLimit(Number(e.target.value))}>
+                    <option value={60}>1 minute</option>
+                    <option value={120}>2 minutes</option>
+                    <option value={180}>3 minutes</option>
+                    <option value={240}>4 minutes</option>
+                    <option value={300}>5 minutes</option>
+                  </select>
+                </div>
+              </div>
+
+              <button onClick={createGame} disabled={!connected || isLoading} className="btn btn-primary btn-lg btn-block">
+                {isLoading ? 'Creating...' : 'Create New Game'} <span aria-hidden="true">→</span>
+              </button>
+
+              <div className="divider">or join with code</div>
+
+              <div className="join-row">
+                <input
+                  type="text"
+                  placeholder="Enter Game ID"
+                  value={gameIdInput}
+                  onChange={(e) => setGameIdInput(e.target.value.toUpperCase())}
+                  className="input mono"
+                />
+                <button onClick={() => joinGameById()} disabled={!connected || !gameIdInput || isLoading} className="btn">
+                  {isLoading ? 'Joining...' : 'Join Game'}
+                </button>
+              </div>
+            </div>
+
+            <div className="card public-card">
+              <div className="public-card-header">
+                <div>
+                  <p className="eyebrow eyebrow-flush">Browse</p>
+                  <h3 className="section-title section-title-sm">Public rooms</h3>
+                </div>
+                <div className="meta">
+                  <span className="live-indicator">Live</span>
+                  <span>{publicGames.length} open</span>
+                </div>
+              </div>
+              {publicGames.length > 0 ? (
+                <div className="games-list">
+                  {publicGames.map((publicGame) => (
+                    <button
+                      type="button"
+                      key={publicGame.gameId}
+                      className="game-row"
+                      onClick={() => joinGameById(publicGame.gameId)}
+                      disabled={!connected || isLoading}
+                    >
+                      <div className="game-avatar">🎭</div>
+                      <div className="game-meta">
+                        <div className="id">#{publicGame.gameId}</div>
+                        <div className="title">{publicGame.players[0]?.name || 'Open room'}</div>
+                      </div>
+                      <div className="player-stack">
+                        {publicGame.players.slice(0, 3).map((player) => (
+                          <div key={player.connectionId || player.name} className="pip" title={player.name}>
+                            {getInitials(player.name).slice(0, 1)}
+                          </div>
+                        ))}
+                        <span className="more">{publicGame.players.length}</span>
+                      </div>
+                      <span className={`status-tag ${publicGame.gameState === 'WAITING' ? 'waiting' : 'playing'}`}>
+                        {publicGame.gameState === 'WAITING' ? 'Waiting' : 'Playing'}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty-state">
+                  <div className="empty-state-mark">🎯</div>
+                  <h4>No public rooms</h4>
+                  <p>Create a public game to get started.</p>
+                </div>
               )}
             </div>
-            <div className="create-game-options">
-              <label>
-                <input type="radio" name="gameType" value="private" checked={!isPublic} onChange={() => setIsPublic(false)} />
-                Private Game
-              </label>
-              <label>
-                <input type="radio" name="gameType" value="public" checked={isPublic} onChange={() => setIsPublic(true)} />
-                Public Game
-              </label>
-            </div>
-            <button onClick={createGame} disabled={!connected || isLoading} className="create-game-btn">
-              {isLoading ? '⏳ Creating...' : 'Create New Game'}
-            </button>
-            <div className="join-game-section">
-              <input
-                type="text"
-                placeholder="Enter Game ID"
-                value={gameIdInput}
-                onChange={(e) => setGameIdInput(e.target.value)}
-                className="game-id-input"
-              />
-              <button onClick={() => joinGameById()} disabled={!connected || !gameIdInput || isLoading} className="join-game-btn">
-                {isLoading ? '⏳ Joining...' : 'Join Game'}
-              </button>
-            </div>
-          </div>
-          <div className="public-games-list">
-            <h3>🌍 Public Games</h3>
-            {publicGames.length > 0 ? (
-              <div className="games-table-container">
-                <table className="games-table">
-                  <thead>
-                    <tr>
-                      <th>Game ID</th>
-                      <th>Status</th>
-                      <th>Players</th>
-                      <th>Player Names</th>
-                      <th>Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {publicGames.map((publicGame) => (
-                      <tr key={publicGame.gameId} className="game-row">
-                        <td className="game-id-cell">
-                          <code>#{publicGame.gameId}</code>
-                        </td>
-                        <td className="status-cell">
-                          <span className={`status-badge ${publicGame.gameState === 'WAITING' ? 'waiting' : 'playing'}`}>
-                            {publicGame.gameState === 'WAITING' ? '⏳ Waiting' : '🎮 Playing'}
-                          </span>
-                        </td>
-                        <td className="player-count-cell">
-                          <span className="player-count">
-                            👥 {publicGame.players.length}
-                          </span>
-                        </td>
-                        <td className="player-names-cell">
-                          {publicGame.players.length > 0 ? (
-                            <div className="player-names">
-                              {publicGame.players.slice(0, 3).map((player, idx) => (
-                                <span key={idx} className="player-tag">
-                                  {player.name}
-                                </span>
-                              ))}
-                              {publicGame.players.length > 3 && (
-                                <span className="more-players">+{publicGame.players.length - 3}</span>
-                              )}
-                            </div>
-                          ) : (
-                            <span className="empty-players">No players</span>
-                          )}
-                        </td>
-                        <td className="action-cell">
-                          <button
-                            onClick={() => joinGameById(publicGame.gameId)}
-                            className="join-table-btn"
-                            disabled={!connected || isLoading}
-                          >
-                            {isLoading ? '⏳' : '🚀 Join'}
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="no-games-message">
-                <div className="no-games-icon">🎯</div>
-                <p>No public games available at the moment.</p>
-                <small>Create a public game to get started!</small>
-              </div>
-            )}
           </div>
         </div>
       )}
 
       {game && game.gameState === 'WAITING' && (
-        <div className="game-lobby">
-          <h2>🎯 Game Lobby</h2>
-          <div className="game-info">
-            <p><strong>Game ID:</strong> <code>{game.gameId}</code></p>
-            <p><strong>Invite Link:</strong></p>
-            <div className="invite-link">
-              <code>{window.location.origin}{window.location.pathname}?gameId={game.gameId}</code>
-              <button onClick={copyInviteLink} className={copyFeedback ? 'copy-success' : ''}>
-                {copyFeedback ? '✅ Copied!' : '📋 Copy'}
-              </button>
+        <div data-screen-label="02 Waiting">
+          <span className="sr-only">🎯 Game Lobby</span>
+          <span className="sr-only">{game.gameId}</span>
+          <section className="round-bar">
+            <div className="left">
+              <span className="round-pill">Room · {game.gameId}</span>
+              <span className="soft-note">Waiting for the host to start</span>
             </div>
-          </div>
+            <button className="btn btn-ghost btn-sm" onClick={backToLobby}>← Leave room</button>
+          </section>
 
-          {isGameOwner() && (
-            <div className="game-settings">
-              <h3>⚙️ Game Settings</h3>
-              <div className="setting-item">
-                <label htmlFor="time-limit">Round Time Limit:</label>
-                <select 
-                  id="time-limit"
-                  value={timeLimit} 
-                  onChange={(e) => setTimeLimit(Number(e.target.value))}
-                  className="time-limit-select"
-                >
-                  <option value={60}>1 minute</option>
-                  <option value={120}>2 minutes</option>
-                  <option value={180}>3 minutes</option>
-                  <option value={240}>4 minutes</option>
-                  <option value={300}>5 minutes</option>
-                </select>
+          <div className="gl-grid">
+            <div>
+              <div className="card card-gap">
+                <p className="eyebrow">Invite friends</p>
+                <h2 className="section-title">Share this <em>link</em></h2>
+                <p className="helper-copy">Anyone with the link can join until the game starts.</p>
+                <div className="invite-block">
+                  <code>{inviteLink}</code>
+                  <button className="btn btn-sm" onClick={copyInviteLink}>
+                    {copyFeedback ? '✅ Copied!' : 'Copy link'}
+                    {!copyFeedback && <span className="sr-only">📋 Copy</span>}
+                  </button>
+                </div>
+                <span className="sr-only">Invite Link:</span>
               </div>
-              <div className="setting-item">
-                <label htmlFor="max-rounds">Rounds:</label>
-                <select
-                  id="max-rounds"
-                  value={maxRounds}
-                  onChange={(e) => setMaxRounds(Number(e.target.value))}
-                  className="max-rounds-select"
-                >
-                  <option value={2}>2 rounds</option>
-                  <option value={3}>3 rounds</option>
-                  <option value={4}>4 rounds</option>
-                  <option value={5}>5 rounds</option>
-                </select>
-              </div>
-            </div>
-          )}
-          
-          <div className="players-section">
-            <h3>👥 Players ({game.players.filter((p: Player) => p.wantsToPlayAgain !== false).length})</h3>
-            {game.players.filter((p: Player) => p.wantsToPlayAgain === false).length > 0 && (
-              <p className="waiting-players-note">
-                🔄 {game.players.filter((p: Player) => p.wantsToPlayAgain === false).length} player(s) waiting to rejoin
-              </p>
-            )}
-            <div className="players-list">
-              {game.players
-                .filter((player: Player) => player.wantsToPlayAgain !== false)
-                .map((player, index) => (
-                <div key={index} className="player-card">
-                  {isCurrentPlayer(player) ? (
-                    <div className="player-name-section">
-                      {editingName ? (
-                        <input
-                          type="text"
-                          value={playerName || player.name}
-                          onChange={(e) => setPlayerName(e.target.value)}
-                          onBlur={(e) => {
-                            const trimmedValue = e.target.value.trim();
-                            if (trimmedValue.length > 0) {
-                              updatePlayerName(trimmedValue);
-                            } else {
-                              // Reset to original name and exit editing mode
-                              const currentPlayer = game.players.find(p => isCurrentPlayer(p));
-                              if (currentPlayer) {
-                                setPlayerName(currentPlayer.name);
-                              }
-                              setEditingName(false);
-                            }
-                          }}
-                          onKeyPress={(e) => {
-                            if (e.key === 'Enter') {
-                              const trimmedValue = e.currentTarget.value.trim();
-                              if (trimmedValue && trimmedValue.length > 0) {
+
+              <div className="card">
+                <div className="card-headline">
+                  <h3 className="section-title section-title-xs">Players <span>· {activePlayers.length}/8</span></h3>
+                  <span className="sr-only">Players ({activePlayers.length})</span>
+                  <span className="soft-note">Min 2 to start</span>
+                </div>
+                {game.players.filter((p: Player) => p.wantsToPlayAgain === false).length > 0 && (
+                  <p className="helper-copy">{game.players.filter((p: Player) => p.wantsToPlayAgain === false).length} player(s) waiting to rejoin</p>
+                )}
+                <div className="players-grid">
+                  {activePlayers.map((player, index) => (
+                    <div key={player.connectionId || player.name} className={`player-tile ${isCurrentPlayer(player) ? 'you' : ''}`}>
+                      {renderAvatar(player.name, isCurrentPlayer(player) ? 'var(--ink)' : avatarColors[index % avatarColors.length], 38)}
+                      <div className="player-name-cell">
+                        {isCurrentPlayer(player) && editingName ? (
+                          <input
+                            type="text"
+                            value={playerName || player.name}
+                            onChange={(e) => setPlayerName(e.target.value)}
+                            onBlur={(e) => {
+                              const trimmedValue = e.target.value.trim();
+                              if (trimmedValue.length > 0) {
                                 updatePlayerName(trimmedValue);
                               } else {
-                                // Reset to original name and exit editing mode
-                                const currentPlayer = game.players.find(p => isCurrentPlayer(p));
-                                if (currentPlayer) {
-                                  setPlayerName(currentPlayer.name);
-                                }
+                                const latestCurrentPlayer = game.players.find(p => isCurrentPlayer(p));
+                                if (latestCurrentPlayer) setPlayerName(latestCurrentPlayer.name);
                                 setEditingName(false);
                               }
-                            } else if (e.key === 'Escape') {
-                              setEditingName(false);
-                            }
-                          }}
-                          placeholder="Enter your name (required)"
-                          className="player-name-input"
-                          autoFocus
-                          minLength={1}
-                          maxLength={20}
-                        />
-                      ) : (
-                        <span 
-                          className="player-name-display clickable" 
-                          onClick={() => setEditingName(true)}
-                          title="Click to edit your name"
-                        >
-                          {isPlayerGameOwner(player) && <span className="host-crown" title="Game Host">👑 </span>}
-                          {playerName || player.name}
-                          <small className="edit-hint"> (click to edit)</small>
-                        </span>
-                      )}
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                const trimmedValue = e.currentTarget.value.trim();
+                                if (trimmedValue) updatePlayerName(trimmedValue);
+                              } else if (e.key === 'Escape') {
+                                setEditingName(false);
+                              }
+                            }}
+                            placeholder="Enter your name (required)"
+                            className="input input-compact"
+                            autoFocus
+                            minLength={1}
+                            maxLength={20}
+                          />
+                        ) : (
+                          <button
+                            type="button"
+                            className="nm player-name-button"
+                            onClick={() => isCurrentPlayer(player) && setEditingName(true)}
+                          >
+                            {player.name}
+                            {isCurrentPlayer(player) && <small className="sr-only"> (click to edit)</small>}
+                          </button>
+                        )}
+                        <div className="sub">
+                          {isPlayerGameOwner(player) && <span className="crown" title="Game Host">♛</span>}
+                          <span>{isPlayerGameOwner(player) ? 'Host' : 'Ready'}{isCurrentPlayer(player) ? ' · You' : ''}</span>
+                        </div>
+                      </div>
                     </div>
-                  ) : (
-                    <span className="player-name">
-                      {isPlayerGameOwner(player) && <span className="host-crown" title="Game Host">👑 </span>}
-                      {player.name}
-                    </span>
-                  )}
-                  <span className="player-score">Score: {player.score}</span>
-                  {isCurrentPlayer(player) && <span className="you-indicator">👤 You</span>}
-                </div>
-              ))}
-            </div>
-            {game.spectators && game.spectators.length > 0 && (
-              <div className="spectators-section">
-                <h4>Spectators ({game.spectators.length})</h4>
-                <div className="spectators-list">
-                  {game.spectators.map((spectator, index) => (
-                    <div key={index} className="spectator-card">
-                      <span>{spectator.name}</span>
+                  ))}
+                  {Array.from({ length: Math.max(0, 8 - activePlayers.length) }).map((_, index) => (
+                    <div key={`empty-${index}`} className="players-empty-slot">
+                      <div className="av">+</div>
+                      <div className="sub">Waiting...</div>
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
-          </div>
-          
-          {isGameOwner() && game.players.filter((p: Player) => p.wantsToPlayAgain !== false).length > 1 && (
-            <button
-              onClick={startGame}
-              disabled={game.players.filter((p: Player) => p.wantsToPlayAgain !== false).length < 2 || isLoading}
-              className="start-game-btn"
-            >
-              {isLoading
-                ? '⏳ Starting...'
-                : game.players.filter((p: Player) => p.wantsToPlayAgain !== false).length < 2
-                  ? 'Need at least 2 players'
-                  : 'Start Game 🚀'}
-            </button>
-          )}
-        </div>
-      )}
-
-      {game && game.gameState === 'IN_PROGRESS' && isSpectator && (
-        <div className="spectator-view">
-          <h2>👓 Spectator Mode</h2>
-          <p>You've joined a game in progress. You can watch the current round and will join as a player in the next round.</p>
-          <div className="game-content">
-            <div className="main-content">
-              <div className="emojis-section">
-                <h3>🎭 Emoji Description</h3>
-                <div className="emojis-display">
-                  {emojis.length > 0 ? emojis.join(' ') : 'Waiting for emojis...'}
-                </div>
-              </div>
-              <div className="hint-section">
-                <h3>💡 Word Hint</h3>
-                <div className="hint-display">
-                  {currentHint}
-                </div>
-              </div>
-              <div className="scoreboard">
-                <h3>🏆 Scoreboard</h3>
-                <div className="scores">
-                  {game.players.map((player, index) => (
-                    <div key={index} className="score-item">
-                      <span className="player-name">{player.name}</span>
-                      <span className="score">{player.score}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-            <div className="chat-sidebar">
-              <div className="chat-section">
-                <h3>💬 Chat & Guesses</h3>
-                <div className="messages" ref={messagesEndRef}>
-                  {messages.map((msg, i) => (
-                    <div key={i} className={`message ${msg.type}`}>
-                      {msg.text}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {game && game.gameState === 'IN_PROGRESS' && !isSpectator && (
-        <div className="game-active">
-          <div className="game-content">
-            <div className="main-content">
-              <h2>
-                🎮 Game in Progress! - Round {game.currentRound} ({game.players.length} players)
-                {roundTimeLeft !== null && (
-                  <span className={`timer ${roundTimeLeft <= 30 ? 'timer-warning' : ''}`}>
-                    ⏰ {Math.floor(roundTimeLeft / 60)}:{(roundTimeLeft % 60).toString().padStart(2, '0')}
-                  </span>
-                )}
-              </h2>
-
-              {isChoosingWord && wordOptions.length > 0 && (
-                <div className="word-choosing-section">
-                  <h3>🎯 Choose a Word to Describe!</h3>
-                  <p>Select one of the three words below:</p>
-                  <div className="timer">Time left: {chooseWordTimeLeft}</div>
-                  <div className="word-options">
-                    {wordOptions.map((word, index) => (
-                      <button 
-                        key={index}
-                        onClick={() => chooseWord(word)}
-                        className="word-option-btn"
-                      >
-                        {word}
-                      </button>
+                {game.spectators && game.spectators.length > 0 && (
+                  <div className="spectator-list-compact">
+                    <span className="soft-note">Spectators ({game.spectators.length})</span>
+                    {game.spectators.map((spectator) => (
+                      <span key={spectator.connectionId || spectator.name} className="status-tag">{spectator.name}</span>
                     ))}
                   </div>
-                </div>
-              )}
+                )}
+              </div>
+            </div>
 
-              {isDescriber && (
-                <div className="describer-section">
-                  <h3>🎨 You are the Describer!</h3>
-                  <p className="secret-word">Describe this word with emojis: <strong>{secretWord}</strong></p>
-                  <div className="emoji-picker">
-                    <div className="emoji-picker-header">
-                      <h4>Select emojis:</h4>
-                      <button onClick={() => setEmojis([])} className="clear-emojis-btn">
-                        Clear Emojis
-                      </button>
-                    </div>
-                    
-                    <div className="emoji-picker-panel">
-                      <EmojiPicker
-                        onEmojiClick={onEmojiClick}
-                        autoFocusSearch={false}
-                        searchPlaceholder="Search emojis..."
-                        width="100%"
-                        height={400}
-                        previewConfig={{
-                          showPreview: false
-                        }}
-                        skinTonesDisabled
-                      />
-                    </div>
+            <div>
+              <div className="card card-gap">
+                <p className="eyebrow">Settings</p>
+                <h3 className="section-title section-title-xs">Round rules</h3>
+                <div className="settings-list">
+                  <div className="row">
+                    <div className="label">Total rounds<span className="sub">Each player describes once per round</span></div>
+                    <select id="max-rounds" className="input" value={maxRounds} onChange={(e) => setMaxRounds(Number(e.target.value))} disabled={!isGameOwner()}>
+                      {[2, 3, 4, 5].map(rounds => <option key={rounds} value={rounds}>{rounds} rounds</option>)}
+                    </select>
                   </div>
-                </div>
-              )}
-
-              <div className="emojis-section">
-                <h3>🎭 Emoji Description</h3>
-                <div className="emojis-display">
-                  {emojis.length > 0 ? emojis.join(' ') : 'Waiting for emojis...'}
+                  <div className="row">
+                    <div className="label">Round time<span className="sub">Per describing turn</span></div>
+                    <select id="time-limit" className="input" value={timeLimit} onChange={(e) => setTimeLimit(Number(e.target.value))} disabled={!isGameOwner()}>
+                      <option value={60}>1:00</option>
+                      <option value={120}>2:00</option>
+                      <option value={180}>3:00</option>
+                      <option value={240}>4:00</option>
+                      <option value={300}>5:00</option>
+                    </select>
+                  </div>
+                  <div className="row">
+                    <div className="label">Hint reveals<span className="sub">Letters appear over time</span></div>
+                    <span className="status-tag playing">On</span>
+                  </div>
                 </div>
               </div>
 
-              {!isDescriber && !isChoosingWord && currentHint && (
-                <div className="hint-section">
-                  <h3>💡 Word Hint</h3>
-                  <div className="hint-display">
-                    {currentHint}
+              {isGameOwner() && (
+                <button
+                  onClick={startGame}
+                  disabled={activePlayers.length < 2 || isLoading}
+                  className="btn btn-primary btn-lg btn-block"
+                >
+                  {isLoading ? 'Starting...' : activePlayers.length < 2 ? 'Need at least 2 players' : 'Start Game'} <span aria-hidden="true">→</span>
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {game && game.gameState === 'IN_PROGRESS' && (
+        <div data-screen-label={isDescriber ? '03 Game (describer)' : '03 Game (guesser)'}>
+          <span className="sr-only">Game in Progress</span>
+          {isSpectator && (
+            <div className="card spectator-banner">
+              <p className="eyebrow">Spectator Mode</p>
+              <p className="helper-copy">You've joined a game in progress. You can watch the current round and will join as a player in the next round.</p>
+            </div>
+          )}
+
+          {isChoosingWord && wordOptions.length > 0 && (
+            <div className="word-picker-backdrop">
+              <div className="card word-picker-card">
+                <div className="word-picker-head">
+                  <div>
+                    <p className="eyebrow">Your turn to describe</p>
+                    <h2 className="section-title">Pick a <em>word</em></h2>
+                    <span className="sr-only">Choose a Word to Describe</span>
+                  </div>
+                  <div className="timer">
+                    <span className="label">Choose in</span>
+                    <span>0:{(chooseWordTimeLeft || 0).toString().padStart(2, '0')}</span>
                   </div>
                 </div>
-              )}
-
-              <div className="scoreboard">
-                <h3>🏆 Scoreboard</h3>
-                <div className="scores">
-                  {game.players.map((player, index) => (
-                    <div key={index} className="score-item">
-                      <span className="player-name">{player.name}</span>
-                      <span className="score">{player.score}</span>
-                    </div>
+                <p className="helper-copy">Select one of the words below.</p>
+                <div className="word-choices">
+                  {wordOptions.map((word, index) => (
+                    <button key={word} onClick={() => chooseWord(word)} className="word-choice">
+                      <span className="num">0{index + 1}</span>
+                      {word}
+                    </button>
                   ))}
                 </div>
               </div>
             </div>
+          )}
 
-            <div className="chat-sidebar">
-              <div className="chat-section">
-                <h3>💬 Chat & Guesses</h3>
-                <div className="messages" ref={messagesEndRef}>
-                  {messages.map((msg, i) => (
-                    <div key={i} className={`message ${msg.type}`}>
-                      {msg.text}
+          <section className="round-bar">
+            <div className="left">
+              <span className="round-pill">{roundLabel}</span>
+              <div className="round-progress" aria-label="Round progress">
+                {Array.from({ length: game.maxRounds || maxRounds }).map((_, index) => (
+                  <span
+                    key={index}
+                    className={`dot ${game.currentRound && index + 1 < game.currentRound ? 'done' : ''} ${game.currentRound === index + 1 ? 'current' : ''}`}
+                  />
+                ))}
+              </div>
+              <span className="soft-note">
+                {isDescriber ? "You're describing" : `${currentDescriber?.name || 'Someone'} is describing`}
+              </span>
+            </div>
+            <div className={`timer ${roundTimeLeft !== null && roundTimeLeft <= 30 ? 'warn' : ''}`}>
+              <span className="label">Time</span>
+              <span>{formatTime(roundTimeLeft ?? game.timeLimit ?? timeLimit)}</span>
+            </div>
+          </section>
+
+          <div className="stage-grid">
+            <div>
+              <div className="stage">
+                <div className="stage-head">
+                  <div className="who">
+                    {renderAvatar(isDescriber ? 'You' : currentDescriber?.name || 'Player', 'var(--plum)', 28)}
+                    <span><strong>{isDescriber ? 'You' : currentDescriber?.name || 'Player'}</strong> {isDescriber ? 'are describing' : 'is describing'}</span>
+                  </div>
+                  <span className="stage-count">{emojis.length} emoji played</span>
+                </div>
+                <div className="canvas">
+                  {emojis.length === 0 ? (
+                    <div className="canvas-empty">Waiting for emojis...</div>
+                  ) : emojis.map((emoji, index) => (
+                    <span key={`${emoji}-${index}`} className="canvas-emoji" style={{ animationDelay: `${index * 60}ms` }}>{emoji}</span>
+                  ))}
+                </div>
+                {(currentHint || !isDescriber) && (
+                  <div className="hint-rail" aria-label="Word hint">
+                    {hintLetters.length > 0 ? hintLetters.map((character, index) => (
+                      character === ' '
+                        ? <div key={index} className="hint-space" />
+                        : <div key={index} className={`hint-letter ${character === '_' ? 'blank' : ''}`}>{character === '_' ? '_' : character}</div>
+                    )) : <div className="canvas-empty">Hint pending</div>}
+                  </div>
+                )}
+              </div>
+
+              {isDescriber && (
+                <div className="describer-card">
+                  <p className="eyebrow">Your secret word</p>
+                  <div className="secret-word-display"><em>{secretWord}</em></div>
+                  <p className="helper-copy">Use the picker to describe it with emoji. The quickbar shows emoji already played this turn.</p>
+                  <div className="emoji-quickbar">
+                    {emojis.length > 0 ? emojis.slice(-12).map((emoji, index) => (
+                      <button key={`${emoji}-quick-${index}`} className="emoji-key" onClick={() => onEmojiClick({ emoji } as EmojiClickData)}>{emoji}</button>
+                    )) : <span className="quickbar-empty">Played emoji will appear here.</span>}
+                  </div>
+                  <div className="describer-actions">
+                    <button onClick={() => setEmojis([])} className="btn btn-ghost btn-sm">Clear all</button>
+                  </div>
+                  <div className="emoji-picker-panel">
+                    <EmojiPicker
+                      onEmojiClick={onEmojiClick}
+                      autoFocusSearch={false}
+                      searchPlaceholder="Search emojis..."
+                      width="100%"
+                      height={400}
+                      previewConfig={{ showPreview: false }}
+                      skinTonesDisabled
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="sidebar">
+              <div className="card scoreboard-card">
+                <div className="head">
+                  <h3 className="section-title section-title-xxs">Scoreboard</h3>
+                  <span className="soft-note">{game.players.length} players</span>
+                </div>
+                <div className="scoreboard-list">
+                  {sortedPlayers.map((player, index) => (
+                    <div key={player.connectionId || player.name} className={`score-row ${isCurrentPlayer(player) ? 'you' : ''} ${currentDescriber?.connectionId === player.connectionId ? 'describer' : ''}`}>
+                      <span className="rank">#{index + 1}</span>
+                      {renderAvatar(player.name, avatarColors[index % avatarColors.length], 32)}
+                      <div className="nm">
+                        {player.name}
+                        {currentDescriber?.connectionId === player.connectionId && <span className="role">· describing</span>}
+                        {isCurrentPlayer(player) && <span className="role">· you</span>}
+                      </div>
+                      <span className="pts">{player.score}</span>
                     </div>
                   ))}
                 </div>
-                
-                {!isDescriber && (
-                  <form onSubmit={handleGuessSubmit} className="guess-form">
-                    <input 
-                      type="text" 
-                      value={guess} 
-                      onChange={(e) => setGuess(e.target.value)} 
+              </div>
+
+              <div className="card chat-card">
+                <div className="head">
+                  <h3 className="section-title section-title-xxs">Guesses</h3>
+                  <span className="soft-note">Live</span>
+                </div>
+                <div className="chat-stream" ref={messagesEndRef}>
+                  {messages.map(renderChatMessage)}
+                </div>
+                {!isDescriber && !isSpectator && (
+                  <form onSubmit={handleGuessSubmit} className="chat-form">
+                    <input
+                      type="text"
+                      value={guess}
+                      onChange={(e) => setGuess(e.target.value)}
                       placeholder="Type your guess..."
-                      className="guess-input"
+                      className="input"
+                      maxLength={50}
                     />
-                    <button type="submit" disabled={!guess} className="guess-btn">
+                    <button type="submit" disabled={!guess} className="btn btn-primary">
                       Guess
                     </button>
                   </form>
@@ -1322,25 +1408,58 @@ const App: React.FC = () => {
       )}
 
       {game && game.gameState === 'ENDED' && (
-        <div className="game-ended">
-          <h2>🎊 Game Ended!</h2>
-          <div className="final-scores">
-            <h3>Final Scores:</h3>
-            {game.players
-              .sort((a, b) => b.score - a.score)
-              .map((player, index) => (
-                <div key={index} className="final-score">
-                  <span className="rank">#{index + 1}</span>
-                  <span className="name">{player.name} {player.wantsToPlayAgain && '🔄'}</span>
-                  <span className="score">{player.score}</span>
-                </div>
-              ))}
+        <div className="ended-wrap" data-screen-label="04 Results">
+          <div className="ended-confetti" aria-hidden="true">
+            <span>🎉</span><span>🏆</span><span>✨</span>
           </div>
+          <p className="eyebrow ended-eyebrow">Final · {game.maxRounds || maxRounds} rounds played</p>
+          <h1 className="ended-title">
+            <em>{sortedPlayers.length > 1 ? sortedPlayers[0].name.split(' ')[0] : 'Winner'}</em> takes the crown
+          </h1>
+          <p className="ended-sub">Great game. {sortedPlayers[0]?.score || 0} points across {game.maxRounds || maxRounds} rounds.</p>
+          <span className="sr-only">Final Scores:</span>
+
+          {sortedPlayers.length > 0 && (
+            <div className="podium">
+              {sortedPlayers[1] && (
+                <div className="podium-step second">
+                  <div className="medal">🥈</div>
+                  <div className="nm">{sortedPlayers[1].name.split(' ')[0]}</div>
+                  <div className="pts">{sortedPlayers[1].score} pts</div>
+                </div>
+              )}
+              <div className="podium-step first">
+                <div className="medal">🥇</div>
+                <div className="nm">{sortedPlayers[0].name.split(' ')[0]}</div>
+                <div className="pts">{sortedPlayers[0].score} pts</div>
+                <span className="sr-only">{sortedPlayers[0].score}</span>
+              </div>
+              {sortedPlayers[2] && (
+                <div className="podium-step third">
+                  <div className="medal">🥉</div>
+                  <div className="nm">{sortedPlayers[2].name.split(' ')[0]}</div>
+                  <div className="pts">{sortedPlayers[2].score} pts</div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="also-ran">
+            {sortedPlayers.slice(3).map((player, index) => (
+              <div key={player.connectionId || player.name} className="card-flat result-row">
+                <span className="rank">#{index + 4}</span>
+                {renderAvatar(player.name, 'var(--bg-2)', 28)}
+                <span className="name">{player.name} {player.wantsToPlayAgain && '↻'}</span>
+                <span className="score">{player.score} pts</span>
+              </div>
+            ))}
+          </div>
+
           <div className="game-ended-actions">
-            <button onClick={playAgain} className="play-again-btn">
+            <button onClick={playAgain} className="btn btn-primary btn-lg">
               {isGameOwner() ? 'Play Again' : 'Rejoin Game'}
             </button>
-            <button onClick={backToLobby} className="back-to-lobby-btn">
+            <button onClick={backToLobby} className="btn btn-lg">
               Back to Lobby
             </button>
           </div>
