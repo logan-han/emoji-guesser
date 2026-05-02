@@ -57,6 +57,10 @@ async function injectMockWebSocket(page: Page, responses: Record<string, any>) {
   }, JSON.stringify(responses));
 }
 
+async function expectConnected(page: Page) {
+  await expect(page.locator('.conn-pill')).toContainText('Connected', { timeout: 5000 });
+}
+
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
     window.localStorage.setItem('emoji-guesser-player-name', 'TestPlayer');
@@ -83,15 +87,14 @@ test.describe('Game Creation Flow', () => {
     await page.goto('/');
 
     // Wait for connection
-    await expect(page.getByText(/Connected/)).toBeVisible({ timeout: 5000 });
+    await expectConnected(page);
 
     // Click create game
     await page.getByRole('button', { name: 'Create New Game' }).click();
 
-    // Should show game lobby
-    await expect(page.getByRole('heading', { name: /Game Lobby/i })).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText('ABC123', { exact: true })).toBeVisible();
-    await expect(page.getByText(/Invite Link/)).toBeVisible();
+    await expect(page.getByText(/Room .*ABC123/)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('heading', { name: /Share this link/i })).toBeVisible();
+    await expect(page.getByRole('button', { name: /Copy link/i })).toBeVisible();
   });
 
   test('should show game settings for owner', async ({ page }) => {
@@ -111,12 +114,12 @@ test.describe('Game Creation Flow', () => {
     });
 
     await page.goto('/');
-    await expect(page.getByText(/Connected/)).toBeVisible({ timeout: 5000 });
+    await expectConnected(page);
     await page.getByRole('button', { name: 'Create New Game' }).click();
 
-    await expect(page.getByRole('heading', { name: /Game Settings/i })).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText(/Round Time Limit/)).toBeVisible();
-    await expect(page.getByText(/Rounds/)).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Round rules/i })).toBeVisible({ timeout: 5000 });
+    await expect(page.getByText(/Round time/)).toBeVisible();
+    await expect(page.getByText(/Total rounds/)).toBeVisible();
   });
 });
 
@@ -138,7 +141,7 @@ test.describe('Game Lobby', () => {
     });
 
     await page.goto('/');
-    await expect(page.getByText(/Connected/)).toBeVisible({ timeout: 5000 });
+    await expectConnected(page);
     await page.getByRole('button', { name: 'Create New Game' }).click();
 
     await expect(page.getByRole('heading', { name: /Players/i })).toBeVisible({ timeout: 5000 });
@@ -162,13 +165,13 @@ test.describe('Game Lobby', () => {
     });
 
     await page.goto('/');
-    await expect(page.getByText(/Connected/)).toBeVisible({ timeout: 5000 });
+    await expectConnected(page);
     await page.getByRole('button', { name: 'Create New Game' }).click();
 
-    await expect(page.getByText(/Invite Link/)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('heading', { name: /Share this link/i })).toBeVisible({ timeout: 5000 });
 
     // Click copy button
-    await page.getByRole('button', { name: /Copy/i }).click();
+    await page.getByRole('button', { name: /Copy link/i }).click();
 
     // Should show copied feedback
     await expect(page.getByText(/Copied/i)).toBeVisible();
@@ -197,12 +200,13 @@ test.describe('Game Lobby', () => {
     });
 
     await page.goto('/');
-    await expect(page.getByText(/Connected/)).toBeVisible({ timeout: 5000 });
+    await expectConnected(page);
     await page.getByRole('button', { name: 'Create New Game' }).click();
 
     // Click to edit name
-    await expect(page.getByText(/click to edit/)).toBeVisible({ timeout: 5000 });
-    await page.getByText(/click to edit/).click();
+    const playerNameButton = page.getByRole('button', { name: /Player 1.*click to edit/i });
+    await expect(playerNameButton).toBeVisible({ timeout: 5000 });
+    await playerNameButton.click();
 
     // Input should appear
     const nameInput = page.getByPlaceholder('Enter your name (required)');
@@ -232,10 +236,10 @@ test.describe('Game In Progress', () => {
     });
 
     await page.goto('/');
-    await expect(page.getByText(/Connected/)).toBeVisible({ timeout: 5000 });
+    await expectConnected(page);
     await page.getByRole('button', { name: 'Create New Game' }).click();
 
-    await expect(page.getByText(/Game in Progress/)).toBeVisible({ timeout: 5000 });
+    await expect(page.locator('[data-screen-label^="03 Game"]')).toBeVisible({ timeout: 5000 });
     await expect(page.getByText(/Scoreboard/)).toBeVisible();
   });
 
@@ -310,10 +314,10 @@ test.describe('Game In Progress', () => {
     });
 
     await page.goto('/');
-    await expect(page.getByText(/Connected/)).toBeVisible({ timeout: 5000 });
+    await expectConnected(page);
     await page.getByRole('button', { name: 'Create New Game' }).click();
 
-    await expect(page.getByText(/Choose a Word to Describe/)).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('heading', { name: /Pick a word/i })).toBeVisible({ timeout: 5000 });
     await expect(page.getByRole('button', { name: 'elephant' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'pizza' })).toBeVisible();
     await expect(page.getByRole('button', { name: 'bicycle' })).toBeVisible();
@@ -340,11 +344,11 @@ test.describe('Game In Progress', () => {
     });
 
     await page.goto('/');
-    await expect(page.getByText(/Connected/)).toBeVisible({ timeout: 5000 });
+    await expectConnected(page);
     await page.getByRole('button', { name: 'Create New Game' }).click();
 
     await expect(page.getByPlaceholder('Type your guess...')).toBeVisible({ timeout: 5000 });
-    await expect(page.getByRole('button', { name: 'Guess' })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Guess', exact: true })).toBeVisible();
   });
 });
 
@@ -366,13 +370,13 @@ test.describe('Game End', () => {
     });
 
     await page.goto('/');
-    await expect(page.getByText(/Connected/)).toBeVisible({ timeout: 5000 });
+    await expectConnected(page);
     await page.getByRole('button', { name: 'Create New Game' }).click();
 
-    await expect(page.getByText(/Game Ended/)).toBeVisible({ timeout: 5000 });
-    await expect(page.getByText(/Final Scores/)).toBeVisible();
-    await expect(page.getByText('150')).toBeVisible();
-    await expect(page.getByText('100')).toBeVisible();
+    await expect(page.locator('[data-screen-label="04 Results"]')).toBeVisible({ timeout: 5000 });
+    await expect(page.getByRole('heading', { name: /takes the crown/i })).toBeVisible();
+    await expect(page.getByText('150 pts')).toBeVisible();
+    await expect(page.getByText('100 pts')).toBeVisible();
   });
 
   test('should show play again and back to lobby buttons', async ({ page }) => {
@@ -391,7 +395,7 @@ test.describe('Game End', () => {
     });
 
     await page.goto('/');
-    await expect(page.getByText(/Connected/)).toBeVisible({ timeout: 5000 });
+    await expectConnected(page);
     await page.getByRole('button', { name: 'Create New Game' }).click();
 
     await expect(page.getByRole('button', { name: /Play Again/i })).toBeVisible({ timeout: 5000 });
@@ -414,7 +418,7 @@ test.describe('Game End', () => {
     });
 
     await page.goto('/');
-    await expect(page.getByText(/Connected/)).toBeVisible({ timeout: 5000 });
+    await expectConnected(page);
     await page.getByRole('button', { name: 'Create New Game' }).click();
 
     await expect(page.getByRole('button', { name: /Back to Lobby/i })).toBeVisible({ timeout: 5000 });
