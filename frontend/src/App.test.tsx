@@ -84,6 +84,7 @@ describe('App Component', () => {
       expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument();
     });
 
+    fireEvent.change(screen.getByLabelText('Your name'), { target: { value: 'TestPlayer' } });
     const createButton = screen.getByText('Create New Game');
     fireEvent.click(createButton);
     
@@ -254,6 +255,7 @@ describe('App Component', () => {
     });
 
     const gameIdInput = screen.getByPlaceholderText('Enter Game ID');
+    fireEvent.change(screen.getByLabelText('Your name'), { target: { value: 'TestPlayer' } });
     fireEvent.change(gameIdInput, { target: { value: 'GAME123' } });
     
     const joinButton = screen.getByText('Join Game');

@@ -57,6 +57,12 @@ async function injectMockWebSocket(page: Page, responses: Record<string, any>) {
   }, JSON.stringify(responses));
 }
 
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem('emoji-guesser-player-name', 'TestPlayer');
+  });
+});
+
 test.describe('Game Creation Flow', () => {
   test('should create a new game and show lobby', async ({ page }) => {
     await injectMockWebSocket(page, {

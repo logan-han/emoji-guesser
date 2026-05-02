@@ -12,6 +12,24 @@ const activeTimeouts = new Map<string, NodeJS.Timeout>();
 
 // --- Helper Functions ---
 
+function sanitizePlayerName(name?: string): string {
+    return (name || '').replace(/<[^>]*>/g, '').trim().slice(0, 20);
+}
+
+function isValidPlayerName(name?: string): boolean {
+    const sanitized = sanitizePlayerName(name);
+    return sanitized.length >= 1 && sanitized.length <= 20;
+}
+
+function generateRandomPlayerName(): string {
+    const adjectives = ['Sunny', 'Lucky', 'Pixel', 'Cosmic', 'Jolly', 'Neon', 'Clever', 'Zesty'];
+    const nouns = ['Mango', 'Panda', 'Rocket', 'Waffle', 'Noodle', 'Comet', 'Puzzle', 'Sprout'];
+    const adjective = adjectives[Math.floor(Math.random() * adjectives.length)];
+    const noun = nouns[Math.floor(Math.random() * nouns.length)];
+    const suffix = Math.floor(10 + Math.random() * 90);
+    return `${adjective} ${noun} ${suffix}`;
+}
+
 const getApiGatewayManagementApi = (event: APIGatewayEvent) => {
     return new ApiGatewayManagementApiClient({
         endpoint: `https://${event.requestContext.domainName}/${event.requestContext.stage}`,
@@ -458,6 +476,8 @@ async function sendPublicGamesList(connectionId: string, event: APIGatewayEvent)
     }
 }
 async function createGame(connectionId: string, event: APIGatewayEvent, sessionId?: string, timeLimit?: number, maxRounds?: number, isPublic?: boolean, playerName?: string) {
+    const sanitizedName = sanitizePlayerName(playerName) || generateRandomPlayerName();
+
     const gameId = randomUUID().substring(0, 6).toUpperCase();
     const now = new Date().toISOString();
     const ttl = Math.floor(Date.now() / 1000) + (24 * 60 * 60); // 24-hour TTL
@@ -470,7 +490,7 @@ async function createGame(connectionId: string, event: APIGatewayEvent, sessionI
             connectionId,
             sessionId,
             score: 0,
-            name: playerName || 'Player 1',
+            name: sanitizedName,
             joinedAt: now,
             lastSeen: now,
         }],
@@ -516,8 +536,11 @@ async function joinGame(connectionId: string, gameId: string, event: APIGatewayE
             // Update connection info for existing player
             existingPlayer.connectionId = connectionId;
             existingPlayer.lastSeen = new Date().toISOString();
-            if (playerName) {
-                existingPlayer.name = playerName;
+            if (playerName !== undefined) {
+                const sanitizedName = sanitizePlayerName(playerName);
+                if (isValidPlayerName(sanitizedName)) {
+                    existingPlayer.name = sanitizedName;
+                }
             }
             
             // If this reconnecting player is the owner, update the ownerId
@@ -561,12 +584,14 @@ async function joinGame(connectionId: string, gameId: string, event: APIGatewayE
         }
 
         // Handle new players
+        const sanitizedName = sanitizePlayerName(playerName) || generateRandomPlayerName();
+
         if (game.gameState === 'IN_PROGRESS' || game.gameState === 'STARTING' || game.gameState === 'ENDED') {
             // Game in progress, add as spectator
             const newSpectator = {
                 connectionId,
                 sessionId,
-                name: playerName || `Spectator ${game.spectators.length + 1}`,
+                name: sanitizedName,
                 joinedAt: new Date().toISOString(),
                 lastSeen: new Date().toISOString(),
                 isSpectator: true,
@@ -592,7 +617,7 @@ async function joinGame(connectionId: string, gameId: string, event: APIGatewayE
             connectionId, 
             sessionId,
             score: 0, 
-            name: playerName || `Player ${game.players.length + 1}`,
+            name: sanitizedName,
             joinedAt: new Date().toISOString(),
             lastSeen: new Date().toISOString()
         };
@@ -1160,6 +1185,12 @@ async function heartbeat(connectionId: string, event: APIGatewayEvent, sessionId
 }
 
 async function updatePlayerName(connectionId: string, gameId: string, name: string, event: APIGatewayEvent, sessionId?: string) {
+    const sanitizedName = sanitizePlayerName(name);
+    if (!isValidPlayerName(sanitizedName)) {
+        await sendMessageToClient(connectionId, { action: 'error', message: 'Player name is required.' }, event);
+        return;
+    }
+
     const getParams = { TableName: GAMES_TABLE, Key: { gameId } };
 
     try {
@@ -1182,7 +1213,7 @@ async function updatePlayerName(connectionId: string, gameId: string, name: stri
             return;
         }
 
-        game.players[playerIndex].name = name || `Player ${playerIndex + 1}`;
+        game.players[playerIndex].name = sanitizedName;
         game.players[playerIndex].lastSeen = new Date().toISOString();
 
         const updateParams = {

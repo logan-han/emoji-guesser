@@ -59,6 +59,35 @@ type WebSocketIncomingMessage = {
   [key: string]: any; // Server responses have varying shapes based on action type
 }
 
+const PLAYER_NAME_ADJECTIVES = [
+  'Sunny',
+  'Lucky',
+  'Pixel',
+  'Cosmic',
+  'Jolly',
+  'Neon',
+  'Clever',
+  'Zesty',
+];
+
+const PLAYER_NAME_NOUNS = [
+  'Mango',
+  'Panda',
+  'Rocket',
+  'Waffle',
+  'Noodle',
+  'Comet',
+  'Puzzle',
+  'Sprout',
+];
+
+const generateRandomPlayerName = (): string => {
+  const adjective = PLAYER_NAME_ADJECTIVES[Math.floor(Math.random() * PLAYER_NAME_ADJECTIVES.length)];
+  const noun = PLAYER_NAME_NOUNS[Math.floor(Math.random() * PLAYER_NAME_NOUNS.length)];
+  const suffix = Math.floor(10 + Math.random() * 90);
+  return `${adjective} ${noun} ${suffix}`;
+};
+
 const App: React.FC = () => {
   const [ws, setWs] = useState<WebSocket | null>(null);
   const [connectionId, setConnectionId] = useState<string | null>(null);
@@ -76,6 +105,7 @@ const App: React.FC = () => {
   const [messages, setMessages] = useState<Message[]>([]);
   const [gameIdInput, setGameIdInput] = useState('');
   const [sessionId, setSessionId] = useState<string>('');
+  const [pendingGameId, setPendingGameId] = useState<string | null>(null);
   const [isPublic, setIsPublic] = useState<boolean>(false);
   const [publicGames, setPublicGames] = useState<Game[]>([]);
   const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -124,6 +154,8 @@ const App: React.FC = () => {
   useEffect(() => {
     const savedSessionId = sessionStorage.getItem('emoji-guesser-session');
     const savedPlayerName = localStorage.getItem('emoji-guesser-player-name');
+    const urlParams = new URLSearchParams(window.location.search);
+    const gameId = urlParams.get('gameId');
     
     if (savedSessionId) {
       setSessionId(savedSessionId);
@@ -136,8 +168,15 @@ const App: React.FC = () => {
       sessionStorage.setItem('emoji-guesser-session', newSessionId);
     }
     
-    if (savedPlayerName) {
-      setPlayerName(savedPlayerName);
+    const nextPlayerName = savedPlayerName || generateRandomPlayerName();
+    setPlayerName(nextPlayerName);
+    if (!savedPlayerName) {
+      localStorage.setItem('emoji-guesser-player-name', nextPlayerName);
+    }
+
+    if (gameId) {
+      setGameIdInput(gameId);
+      setPendingGameId(gameId);
     }
   }, []);
 
@@ -159,13 +198,13 @@ const App: React.FC = () => {
       const urlParams = new URLSearchParams(window.location.search);
       const gameId = urlParams.get('gameId');
       if (gameId) {
-        // Send session ID with join request to maintain identity
         newWs.send(JSON.stringify({
           action: 'joinGame',
           gameId,
           sessionId,
-          playerName: playerName || undefined
+          playerName: playerName || generateRandomPlayerName()
         }));
+        setPendingGameId(null);
       }
     };
 
@@ -679,8 +718,11 @@ const App: React.FC = () => {
 
   const createGame = () => {
     playSound('buttonClick');
+    const sanitizedName = sanitizePlayerName(playerName) || generateRandomPlayerName();
     setIsLoading(true);
-    sendMessage({ action: 'createGame', sessionId, playerName: playerName || undefined, timeLimit, maxRounds, isPublic });
+    setPlayerName(sanitizedName);
+    localStorage.setItem('emoji-guesser-player-name', sanitizedName);
+    sendMessage({ action: 'createGame', sessionId, playerName: sanitizedName, timeLimit, maxRounds, isPublic });
   };
 
   const startGame = () => {
@@ -691,11 +733,14 @@ const App: React.FC = () => {
 
   const joinGameById = (id?: string) => {
     playSound('buttonClick');
-    setIsLoading(true);
     const gameToJoin = id || gameIdInput;
+    const sanitizedName = sanitizePlayerName(playerName) || generateRandomPlayerName();
     if (gameToJoin) {
-      const sanitizedName = playerName ? sanitizePlayerName(playerName) : undefined;
+      setIsLoading(true);
+      setPlayerName(sanitizedName);
+      localStorage.setItem('emoji-guesser-player-name', sanitizedName);
       sendMessage({ action: 'joinGame', gameId: gameToJoin, sessionId, playerName: sanitizedName });
+      setPendingGameId(null);
       setGameIdInput('');
     }
   };
@@ -838,6 +883,23 @@ const App: React.FC = () => {
       {!game && (
         <div className="lobby">
           <div className="game-actions">
+            <div className="lobby-name-section">
+              <label htmlFor="lobby-player-name">Your name</label>
+              <input
+                id="lobby-player-name"
+                type="text"
+                placeholder="Enter your name"
+                value={playerName}
+                onChange={(e) => setPlayerName(e.target.value)}
+                className="player-name-input"
+                minLength={1}
+                maxLength={20}
+                autoComplete="nickname"
+              />
+              {pendingGameId && (
+                <small>Joining game {pendingGameId}</small>
+              )}
+            </div>
             <div className="create-game-options">
               <label>
                 <input type="radio" name="gameType" value="private" checked={!isPublic} onChange={() => setIsPublic(false)} />

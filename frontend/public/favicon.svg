@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Emoji Guesser icon">
+  <defs>
+    <linearGradient id="bg" x1="72" y1="56" x2="452" y2="464" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#a855f7"/>
+      <stop offset="0.55" stop-color="#ff66c4"/>
+      <stop offset="1" stop-color="#ffd75a"/>
+    </linearGradient>
+    <linearGradient id="face" x1="152" y1="120" x2="360" y2="376" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff4a8"/>
+      <stop offset="1" stop-color="#ffbf3f"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#0f0a1f"/>
+  <rect x="40" y="40" width="432" height="432" rx="96" fill="url(#bg)"/>
+  <circle cx="256" cy="252" r="152" fill="#ffffff" opacity="0.22"/>
+  <circle cx="256" cy="252" r="118" fill="#0f0a1f" opacity="0.18"/>
+  <circle cx="256" cy="252" r="92" fill="url(#face)"/>
+  <circle cx="224" cy="232" r="16" fill="#32114f"/>
+  <circle cx="296" cy="232" r="16" fill="#32114f"/>
+  <path d="M210 282c24 32 68 32 92 0" fill="none" stroke="#32114f" stroke-width="18" stroke-linecap="round"/>
+  <path d="M336 126l22 52 56 5-42 36 13 55-49-29-49 29 13-55-42-36 56-5 22-52z" fill="#38e1ff" stroke="#ffffff" stroke-width="12" stroke-linejoin="round"/>
+  <path d="M154 352c38 28 88 44 142 40" fill="none" stroke="#ffffff" stroke-width="22" stroke-linecap="round" opacity="0.82"/>
+</svg>
