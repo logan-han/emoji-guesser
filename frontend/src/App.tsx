@@ -134,13 +134,14 @@ const App: React.FC = () => {
   const [maxRounds, setMaxRounds] = useState<number>(2);
   const [roundTimeLeft, setRoundTimeLeft] = useState<number | null>(null);
   const [chooseWordTimeLeft, setChooseWordTimeLeft] = useState<number | null>(null);
-  const [timerInterval, setTimerInterval] = useState<NodeJS.Timeout | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [lastGuessTime, setLastGuessTime] = useState<number>(0); // Rate limiting for guesses
   const [reconnectTrigger, setReconnectTrigger] = useState<number>(0); // Trigger WebSocket reconnection
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const roundTimerIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const timeUpSentRef = useRef<boolean>(false); // Track if timeUp was already sent for current round
+  const activeRoundTimerKeyRef = useRef<string | null>(null);
   const pendingTimeoutsRef = useRef<NodeJS.Timeout[]>([]); // Track pending timeouts for cleanup
   const reconnectAttemptsRef = useRef<number>(0);
   const maxReconnectAttempts = 5;
@@ -291,6 +292,18 @@ const App: React.FC = () => {
     }
   }, [ws, connected, sendMessage]);
 
+  const clearRoundTimer = useCallback(() => {
+    if (roundTimerIntervalRef.current) {
+      clearInterval(roundTimerIntervalRef.current);
+      roundTimerIntervalRef.current = null;
+    }
+    pendingTimeoutsRef.current.forEach(t => clearTimeout(t));
+    pendingTimeoutsRef.current = [];
+    activeRoundTimerKeyRef.current = null;
+    timeUpSentRef.current = false;
+    setRoundTimeLeft(null);
+  }, []);
+
   // Fetch public games when connected and periodically refresh
   useEffect(() => {
     if (connected && ws && !game) {
@@ -307,14 +320,19 @@ const App: React.FC = () => {
   }, [connected, ws, fetchPublicGames, game]);
 
   const startRoundTimer = useCallback((gameState: Game) => {
-    // Clear any existing timer and pending timeouts
-    if (timerInterval) {
-      clearInterval(timerInterval);
-      setTimerInterval(null);
+    if (roundTimerIntervalRef.current) {
+      clearInterval(roundTimerIntervalRef.current);
+      roundTimerIntervalRef.current = null;
     }
-    pendingTimeoutsRef.current.forEach(t => clearTimeout(t));
-    pendingTimeoutsRef.current = [];
-    timeUpSentRef.current = false; // Reset for new round
+
+    const roundTimerKey = `${gameState.gameId}:${gameState.turnStartTime || ''}`;
+    if (activeRoundTimerKeyRef.current !== roundTimerKey) {
+      pendingTimeoutsRef.current.forEach(t => clearTimeout(t));
+      pendingTimeoutsRef.current = [];
+      timeUpSentRef.current = false;
+      activeRoundTimerKeyRef.current = roundTimerKey;
+    }
+
     setRoundTimeLeft(null);
 
     if (gameState.turnStartTime && gameState.timeLimit) {
@@ -331,7 +349,9 @@ const App: React.FC = () => {
             if (prev === null || prev <= 1) {
               // Clear the timer when time is up
               clearInterval(interval);
-              setTimerInterval(null);
+              if (roundTimerIntervalRef.current === interval) {
+                roundTimerIntervalRef.current = null;
+              }
               setRoundTimeLeft(0);
 
               // Send timeUp only once per round to avoid race condition
@@ -351,7 +371,7 @@ const App: React.FC = () => {
           });
         }, 1000);
 
-        setTimerInterval(interval);
+        roundTimerIntervalRef.current = interval;
       } else {
         // Time already up when starting timer
         setRoundTimeLeft(0);
@@ -412,17 +432,6 @@ const App: React.FC = () => {
       };
     }
   }, [game, sendMessage, roundTimeLeft]);
-
-  const clearRoundTimer = useCallback(() => {
-    if (timerInterval) {
-      clearInterval(timerInterval);
-      setTimerInterval(null);
-    }
-    // Clear any pending timeouts
-    pendingTimeoutsRef.current.forEach(t => clearTimeout(t));
-    pendingTimeoutsRef.current = [];
-    setRoundTimeLeft(null);
-  }, [timerInterval]);
 
   useEffect(() => {
     if (!supabase || !game?.gameId) {
@@ -1414,7 +1423,7 @@ const App: React.FC = () => {
           </div>
           <p className="eyebrow ended-eyebrow">Final · {game.maxRounds || maxRounds} rounds played</p>
           <h1 className="ended-title">
-            <em>{sortedPlayers.length > 1 ? sortedPlayers[0].name.split(' ')[0] : 'Winner'}</em> takes the crown
+            <em>{sortedPlayers.length > 1 ? sortedPlayers[0].name : 'Winner'}</em> takes the crown
           </h1>
           <p className="ended-sub">Great game. {sortedPlayers[0]?.score || 0} points across {game.maxRounds || maxRounds} rounds.</p>
           <span className="sr-only">Final Scores:</span>
@@ -1424,20 +1433,20 @@ const App: React.FC = () => {
               {sortedPlayers[1] && (
                 <div className="podium-step second">
                   <div className="medal">🥈</div>
-                  <div className="nm">{sortedPlayers[1].name.split(' ')[0]}</div>
+                  <div className="nm">{sortedPlayers[1].name}</div>
                   <div className="pts">{sortedPlayers[1].score} pts</div>
                 </div>
               )}
               <div className="podium-step first">
                 <div className="medal">🥇</div>
-                <div className="nm">{sortedPlayers[0].name.split(' ')[0]}</div>
+                <div className="nm">{sortedPlayers[0].name}</div>
                 <div className="pts">{sortedPlayers[0].score} pts</div>
                 <span className="sr-only">{sortedPlayers[0].score}</span>
               </div>
               {sortedPlayers[2] && (
                 <div className="podium-step third">
                   <div className="medal">🥉</div>
-                  <div className="nm">{sortedPlayers[2].name.split(' ')[0]}</div>
+                  <div className="nm">{sortedPlayers[2].name}</div>
                   <div className="pts">{sortedPlayers[2].score} pts</div>
                 </div>
               )}

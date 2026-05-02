@@ -348,12 +348,12 @@ describe('App Component', () => {
 
     const websocket = mockWebSocketInstances[0];
     act(() => {
-      websocket.onmessage({ data: JSON.stringify({ action: 'gameEnded', game: { gameId: 'GAME123', gameState: 'ENDED', players: [{ name: 'TestPlayer', connectionId: 'test-conn', score: 100 }] } }) });
+      websocket.onmessage({ data: JSON.stringify({ action: 'gameEnded', game: { gameId: 'GAME123', gameState: 'ENDED', players: [{ name: 'Lucky Noodle 75', connectionId: 'test-conn', score: 100 }] } }) });
     });
 
     await waitFor(() => expect(screen.getByText('Final Scores:')).toBeInTheDocument());
-    expect(screen.getByText('TestPlayer')).toBeInTheDocument();
-    expect(screen.getByText('100')).toBeInTheDocument();
+    expect(screen.getAllByText('Lucky Noodle 75').length).toBeGreaterThan(0);
+    expect(screen.getByText('100 pts')).toBeInTheDocument();
   });
 
   test('allows the owner to play again', async () => {
@@ -870,6 +870,60 @@ describe('App Component', () => {
     await waitFor(() => {
       expect(screen.getByText(/Player1 is now describing/)).toBeInTheDocument();
     });
+  });
+
+  test('does not stack round timer intervals when the same turn is refreshed', async () => {
+    jest.useFakeTimers();
+
+    render(<App />);
+
+    act(() => {
+      jest.runOnlyPendingTimers();
+    });
+
+    await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
+
+    const websocket = mockWebSocketInstances[0];
+    const game = {
+      gameId: 'GAME123',
+      gameState: 'IN_PROGRESS',
+      players: [
+        { name: 'Player1', connectionId: 'conn-1', score: 0 },
+        { name: 'TestPlayer', connectionId: 'test-conn', score: 0 }
+      ],
+      currentRound: 1,
+      currentDescriberIndex: 0,
+      turnState: 'DESCRIBING',
+      turnStartTime: new Date().toISOString(),
+      timeLimit: 120
+    };
+
+    act(() => {
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'turnStarted',
+          hint: '_ _ _ _ _',
+          game
+        })
+      });
+      websocket.onmessage({
+        data: JSON.stringify({
+          action: 'turnStarted',
+          hint: '_ _ _ _ _',
+          game
+        })
+      });
+    });
+
+    expect(screen.getByText('02:00')).toBeInTheDocument();
+
+    act(() => {
+      jest.advanceTimersByTime(1000);
+    });
+
+    expect(screen.getByText('01:59')).toBeInTheDocument();
+
+    jest.useRealTimers();
   });
 
   test('handles hint updated message', async () => {
