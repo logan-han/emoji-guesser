@@ -4,6 +4,8 @@ import android.app.Application
 import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.emojiguesser.EmojiGuesserApp
+import com.emojiguesser.audio.SoundEvent
 import com.emojiguesser.network.ConnectionState
 import com.emojiguesser.network.WebSocketClient
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,29 +17,25 @@ import java.util.UUID
 class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val webSocketClient = WebSocketClient()
     private val prefs = application.getSharedPreferences("emoji_guesser", Context.MODE_PRIVATE)
+    private val app get() = getApplication<EmojiGuesserApp>()
 
-    // Session ID persisted across app restarts
     val sessionId: String = prefs.getString("session_id", null) ?: run {
         val newId = UUID.randomUUID().toString()
         prefs.edit().putString("session_id", newId).apply()
         newId
     }
 
-    // Saved player name
     private val _playerName = MutableStateFlow(prefs.getString("player_name", "") ?: "")
     val playerName: StateFlow<String> = _playerName.asStateFlow()
 
-    // Connection state
     val connectionState: StateFlow<ConnectionState> = webSocketClient.connectionState
 
-    // Game state
     private val _currentGame = MutableStateFlow<Game?>(null)
     val currentGame: StateFlow<Game?> = _currentGame.asStateFlow()
 
     private val _publicGames = MutableStateFlow<List<Game>>(emptyList())
     val publicGames: StateFlow<List<Game>> = _publicGames.asStateFlow()
 
-    // UI state
     private val _emojis = MutableStateFlow<List<String>>(emptyList())
     val emojis: StateFlow<List<String>> = _emojis.asStateFlow()
 
@@ -72,20 +70,22 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun handleServerMessage(message: ServerMessage) {
         when (message.action) {
-            "connected" -> {
-                // Connection established
-            }
+            "connected" -> { /* no-op */ }
             "gameCreated", "playerJoined", "gameStarted", "playerNameUpdated",
             "gameRestarted", "playerLeft", "nextTurn" -> {
                 message.game?.let { game ->
+                    val previousPlayerCount = _currentGame.value?.players?.size ?: 0
                     _currentGame.value = game
                     webSocketClient.currentGameId = game.gameId
-                    // Clear emojis and guesses on new turn
                     if (message.action == "nextTurn" || message.action == "gameStarted") {
                         _emojis.value = emptyList()
                         _guesses.value = emptyList()
                         _lastGuessedWord.value = null
                         _lastGuesserName.value = null
+                        if (message.action == "gameStarted") app.sounds.play(SoundEvent.GameStart)
+                    }
+                    if (message.action == "playerJoined" && game.players.size > previousPlayerCount) {
+                        app.sounds.play(SoundEvent.PlayerJoined)
                     }
                 }
             }
@@ -112,6 +112,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             "newEmoji" -> {
                 message.emoji?.let { emoji ->
                     _emojis.value = _emojis.value + emoji
+                    app.sounds.play(SoundEvent.EmojiSelect)
                 }
             }
             "newGuess" -> {
@@ -122,26 +123,30 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                         guesserId = message.guesserId ?: "",
                         guesserName = guesserName
                     )
+                    app.sounds.play(SoundEvent.NewGuess)
                 }
             }
             "wordGuessed" -> {
                 _lastGuessedWord.value = message.word
                 _lastGuesserName.value = message.guesserName
                 message.game?.let { _currentGame.value = it }
+                app.sounds.play(SoundEvent.CorrectGuess)
+                app.haptics.success()
             }
             "timeUp" -> {
                 _lastGuessedWord.value = message.word
                 _lastGuesserName.value = null
+                app.sounds.play(SoundEvent.TimeUp)
+                app.haptics.warn()
             }
             "gameEnded" -> {
                 message.game?.let { _currentGame.value = it }
+                app.sounds.play(SoundEvent.GameEnd)
             }
             "error" -> {
                 _errorMessage.value = message.message
             }
-            "heartbeatAck" -> {
-                // Heartbeat acknowledged
-            }
+            "heartbeatAck" -> { /* no-op */ }
         }
     }
 
@@ -165,34 +170,44 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun createGame(timeLimit: Int = 120, isPublic: Boolean = false) {
         webSocketClient.createGame(sessionId, _playerName.value, timeLimit, isPublic)
+        app.sounds.play(SoundEvent.ButtonClick)
+        app.haptics.click()
     }
 
     fun joinGame(gameId: String) {
         webSocketClient.joinGame(gameId, sessionId, _playerName.value)
+        app.sounds.play(SoundEvent.ButtonClick)
+        app.haptics.click()
     }
 
     fun startGame(timeLimit: Int = 120) {
         _currentGame.value?.let { game ->
             webSocketClient.startGame(game.gameId, sessionId, timeLimit)
         }
+        app.sounds.play(SoundEvent.ButtonClick)
+        app.haptics.click()
     }
 
     fun chooseWord(word: String) {
         _currentGame.value?.let { game ->
             webSocketClient.chooseWord(game.gameId, word)
         }
+        app.sounds.play(SoundEvent.ButtonClick)
+        app.haptics.click()
     }
 
     fun submitEmoji(emoji: String) {
         _currentGame.value?.let { game ->
             webSocketClient.submitEmoji(game.gameId, emoji)
         }
+        app.haptics.click()
     }
 
     fun submitGuess(guess: String) {
         _currentGame.value?.let { game ->
             webSocketClient.submitGuess(game.gameId, guess)
         }
+        app.haptics.click()
     }
 
     fun listPublicGames() {
@@ -203,6 +218,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         _currentGame.value?.let { game ->
             webSocketClient.restartGame(game.gameId, sessionId, timeLimit)
         }
+        app.sounds.play(SoundEvent.ButtonClick)
+        app.haptics.click()
     }
 
     fun leaveGame() {

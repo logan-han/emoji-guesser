@@ -125,17 +125,22 @@ The Android app has its own GitHub Actions workflow (`.github/workflows/android.
 
 The Android app is configured for fully automated builds:
 
-- **Keystore**: Auto-generated during CI using `generate-keystore.sh`
-- **Signing credentials**: Stored in `keystore.properties` (committed to private repo)
-- **WebSocket URL**: Automatically fetched from backend deployment
+- **Keystore**: Generated once with `generate-keystore.sh`, then base64-encoded and stored as the `KEYSTORE_BASE64` GitHub secret. CI decodes it back to `app/keystore.jks` on every run so each release is signed with the same upload key.
+- **Signing credentials**: Read from secrets `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`. Local builds can fall back to `keystore.properties`.
+- **WebSocket URL**: Set via the `WS_URL` GitHub secret (or env var for local builds).
 
-**Optional secret for Play Store publishing:**
+**Required secrets for Play Store publishing:**
 
 | Secret | Description |
 |--------|-------------|
+| `KEYSTORE_BASE64` | Base64-encoded release keystore (`base64 -i app/release-keystore.jks`) |
+| `KEYSTORE_PASSWORD` | Keystore password |
+| `KEY_ALIAS` | Signing key alias |
+| `KEY_PASSWORD` | Signing key password |
+| `WS_URL` | Production WebSocket URL from backend deploy |
 | `PLAY_STORE_SERVICE_ACCOUNT_JSON` | Google Play service account JSON (optional) |
 
-The Play Store upload step only runs if this secret is configured.
+The Play Store upload step only runs if `PLAY_STORE_SERVICE_ACCOUNT_JSON` is configured. See `android/play-store/README.md` for the listing copy, privacy policy, and Data Safety checklist.
 
 ## 🚢 Deployment
 

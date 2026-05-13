@@ -123,3 +123,17 @@ temp/
 
 # Local development
 local/
+
+# Android
+android/.gradle/
+android/local.properties
+android/captures/
+android/app/build/
+android/build/
+android/.idea/
+android/.cxx/
+android/*.iml
+android/app/*.iml
+android/app/release-keystore.jks
+android/app/debug-keystore.jks
+android/app/google-services.json

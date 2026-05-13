@@ -1,9 +1,9 @@
 package com.emojiguesser.network
 
-import android.util.Log
 import com.emojiguesser.BuildConfig
 import com.emojiguesser.data.ServerMessage
 import com.emojiguesser.data.WebSocketMessage
+import com.emojiguesser.util.Logger
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -69,36 +69,36 @@ class WebSocketClient {
 
         webSocket = client.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
-                Log.d(TAG, "WebSocket connected")
+                Logger.d(TAG, "WebSocket connected")
                 _connectionState.value = ConnectionState.CONNECTED
                 reconnectAttempts = 0
                 startHeartbeat()
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
-                Log.d(TAG, "Received: $text")
+                Logger.d(TAG, "Received: $text")
                 try {
                     val message = json.decodeFromString<ServerMessage>(text)
                     scope.launch {
                         _messages.emit(message)
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Failed to parse message: $text", e)
+                    Logger.e(TAG, "Failed to parse message: $text", e)
                 }
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
-                Log.d(TAG, "WebSocket closing: $code - $reason")
+                Logger.d(TAG, "WebSocket closing: $code - $reason")
                 webSocket.close(1000, null)
             }
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                Log.d(TAG, "WebSocket closed: $code - $reason")
+                Logger.d(TAG, "WebSocket closed: $code - $reason")
                 handleDisconnect()
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                Log.e(TAG, "WebSocket failure", t)
+                Logger.e(TAG, "WebSocket failure", t)
                 handleDisconnect()
             }
         })
@@ -111,7 +111,7 @@ class WebSocketClient {
         if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
             scope.launch {
                 val delayMs = INITIAL_RECONNECT_DELAY * (1 shl reconnectAttempts)
-                Log.d(TAG, "Reconnecting in ${delayMs}ms (attempt ${reconnectAttempts + 1})")
+                Logger.d(TAG, "Reconnecting in ${delayMs}ms (attempt ${reconnectAttempts + 1})")
                 delay(delayMs)
                 reconnectAttempts++
                 connect()
@@ -147,7 +147,7 @@ class WebSocketClient {
 
     fun send(message: WebSocketMessage) {
         val jsonString = json.encodeToString(message)
-        Log.d(TAG, "Sending: $jsonString")
+        Logger.d(TAG, "Sending: $jsonString")
         webSocket?.send(jsonString)
     }
 

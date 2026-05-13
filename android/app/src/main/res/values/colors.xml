@@ -1,9 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="purple_primary">#6B46C1</color>
-    <color name="purple_dark">#553C9A</color>
-    <color name="blue_accent">#3182CE</color>
-    <color name="white">#FFFFFF</color>
-    <color name="background_start">#6B46C1</color>
-    <color name="background_end">#3182CE</color>
+    <!-- Confetti palette -->
+    <color name="paper">#FBF6EC</color>
+    <color name="bg">#F4ECDF</color>
+    <color name="bg_2">#EBE1D0</color>
+    <color name="ink">#1D1A17</color>
+    <color name="ink_soft">#6E645A</color>
+    <color name="tomato">#C44A2E</color>
+    <color name="gold">#D9A227</color>
+    <color name="teal">#3F8A93</color>
+    <color name="plum">#7A3B7B</color>
+    <color name="sage">#7BA071</color>
+
+    <!-- Midnight (dark) palette -->
+    <color name="paper_dark">#1F1D18</color>
+    <color name="bg_dark">#14130F</color>
+    <color name="ink_light">#F3EAD9</color>
 </resources>
