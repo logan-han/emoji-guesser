@@ -55,14 +55,29 @@ https://emoji.han.life/privacy.html
 ## Assets checklist
 - [x] App icon: `icon-512.png` (512x512 RGB, no alpha)
 - [x] Feature graphic: `feature-graphic-1024x500.png`
-- [ ] Phone screenshots (minimum 2, recommended 5):
-    1. Lobby with brand mark and Create / Join cards
-    2. Waiting room with copy-code button
-    3. Describer view: word card + emoji strip + emoji picker
-    4. Guesser view: hint tiles + guess input + scoreboard
-    5. Game over with confetti and ranking
-- [ ] (Optional) Tablet 7" + 10" screenshots, same flows
+- [x] Phone screenshots (minimum 2, recommended 5) in `screenshots/`:
+    1. `01-lobby.png` - Lobby with brand mark and Create / Join cards
+    2. `02-waiting-room.png` - Waiting room with copy-code button
+    3. `03-describer.png` - Describer view: word card + emoji strip + emoji picker
+    4. `04-guesser.png` - Guesser view: hint tiles + guess input + scoreboard
+    5. `05-game-over.png` - Game over with confetti and ranking
+- [x] Tablet 7" screenshots in `screenshots/tablet-7/` (same flows, 1200x1920)
+- [x] Tablet 10" screenshots in `screenshots/tablet-10/` (same flows, 1600x2560)
 - [ ] (Optional) Promo video (YouTube link)
 
 ## Screenshot capture
-Use Pixel 7 emulator API 35, 1080x2400. Capture via `adb exec-out screencap -p > screen.png`. Place finished PNGs in `android/play-store/screenshots/`.
+All screenshots are generated from the Compose source by `render_screenshots.py` (Pillow + pilmoji). To regenerate after UI changes:
+
+```bash
+python3 -m venv /tmp/.play-store-venv
+source /tmp/.play-store-venv/bin/activate
+pip install pillow pilmoji emoji
+python android/play-store/render_screenshots.py
+```
+
+Output goes to `android/play-store/screenshots/`:
+- `*.png` — phone (Pixel 7, 1080x2400 @ density 2.625)
+- `tablet-7/*.png` — 7" tablet (1200x1920 @ density 2.0)
+- `tablet-10/*.png` — 10" tablet (1600x2560 @ density 2.0)
+
+Fonts are fetched into `/tmp/play-store-fonts` once. Update the script when the Compose layouts or theme change.
