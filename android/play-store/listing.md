@@ -41,10 +41,10 @@ PEGI 3 / ESRB Everyone. No violence, no nudity, no gambling, no in-app purchases
 Free, no in-app purchases.
 
 ## Contact
-support@emojiguesser.com (or update before submission)
+logan@han.life
 
 ## Privacy Policy URL
-TODO: paste `privacy.html` into a public gist (https://gist.github.com/new) and use the raw URL here. Or host on the frontend at https://emojiguesser.com/privacy.
+https://emoji.han.life/privacy.html
 
 ## Data Safety declaration
 - No personal information collected.

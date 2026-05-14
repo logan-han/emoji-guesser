@@ -35,7 +35,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data
                     android:scheme="https"
-                    android:host="emojiguesser.com"
+                    android:host="emoji.han.life"
                     android:pathPrefix="/game/" />
             </intent-filter>
         </activity>

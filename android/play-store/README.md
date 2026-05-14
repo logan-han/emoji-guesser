@@ -5,7 +5,7 @@ Files in this folder are not bundled into the APK. They are the source of truth 
 ## Contents
 - `listing.md` - title, descriptions, content rating, target audience.
 - `data-safety.md` - answers for the Data Safety form.
-- `privacy.html` - privacy policy to be hosted at `https://emojiguesser.com/privacy`.
+- Privacy policy lives at `frontend/public/privacy.html` and is served at `https://emoji.han.life/privacy.html` via the frontend S3+CloudFront deploy.
 - `screenshots/` - phone screenshots to upload (capture from emulator at 1080x2400).
 
 ## Release checklist
@@ -15,7 +15,7 @@ Files in this folder are not bundled into the APK. They are the source of truth 
 3. Upload AAB to Play Console internal testing track.
 4. Fill listing per `listing.md`.
 5. Fill Data Safety per `data-safety.md`.
-6. Publish `privacy.html` to the web frontend so the URL resolves.
+6. Confirm `https://emoji.han.life/privacy.html` resolves after the frontend deploy.
 7. Wait for Pre-Launch Report (Play Console runs it automatically), resolve any flagged issues.
 8. Promote internal -> closed -> open -> production once stable.
 

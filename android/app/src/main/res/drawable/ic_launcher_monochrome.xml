@@ -4,19 +4,28 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
     <!-- Face outline -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M54,54m-28,0a28,28 0,1 1,56 0a28,28 0,1 1,-56 0M54,54m-24,0a24,24 0,1 0,48 0a24,24 0,1 0,-48 0Z"/>
-    <!-- Eyes -->
+        android:fillType="evenOdd"
+        android:pathData="M54,54m-30,0a30,30 0 1 1,60 0a30,30 0 1 1,-60 0M54,54m-26,0a26,26 0 1 0,52 0a26,26 0 1 0,-52 0Z"/>
+
+    <!-- Left eye -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M44,48m-4,0a4,4 0,1 1,8 0a4,4 0,1 1,-8 0"/>
+        android:pathData="M44,47m-3,0a3,4.5 0 1 1,6 0a3,4.5 0 1 1,-6 0"/>
+
+    <!-- Right eye -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M64,48m-4,0a4,4 0,1 1,8 0a4,4 0,1 1,-8 0"/>
+        android:pathData="M64,47m-3,0a3,4.5 0 1 1,6 0a3,4.5 0 1 1,-6 0"/>
+
     <!-- Smile -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M42,60 Q54,72 66,60 L64,58 Q54,68 44,58 Z"/>
+        android:pathData="M41,61 Q54,76 67,61"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"/>
 </vector>

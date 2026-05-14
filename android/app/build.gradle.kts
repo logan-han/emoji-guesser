@@ -17,6 +17,18 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
+// Load local overrides (e.g. WS_URL) from local.properties if present
+val localPropertiesFile = rootProject.file("local.properties")
+val localProperties = Properties()
+if (localPropertiesFile.exists()) {
+    localProperties.load(FileInputStream(localPropertiesFile))
+}
+
+val defaultWsUrl = "wss://e0pujn2dij.execute-api.ap-southeast-4.amazonaws.com/prod"
+val wsUrl = System.getenv("WS_URL")
+    ?: localProperties.getProperty("WS_URL")
+    ?: defaultWsUrl
+
 android {
     namespace = "com.emojiguesser"
     compileSdk = 35
@@ -33,12 +45,8 @@ android {
             useSupportLibrary = true
         }
 
-        // WebSocket URL injected at build time via WS_URL env var.
-        buildConfigField(
-            "String",
-            "WS_URL",
-            "\"${System.getenv("WS_URL") ?: "wss://placeholder.invalid/prod"}\""
-        )
+        // WebSocket URL resolved from env var, local.properties, or prod default.
+        buildConfigField("String", "WS_URL", "\"$wsUrl\"")
     }
 
     signingConfigs {
