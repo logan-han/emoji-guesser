@@ -22,6 +22,19 @@ jest.mock('compromise', () => {
 import { generate } from 'random-words';
 
 describe('Dictionary Functions', () => {
+  let consoleLogSpy: jest.SpyInstance;
+  let consoleErrorSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+  });
+
+  afterEach(() => {
+    consoleLogSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+  });
+
   describe('getRandomWords', () => {
     beforeEach(() => {
       jest.clearAllMocks();
