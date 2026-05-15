@@ -39,6 +39,7 @@ fun MainScreen(
     isOwner: Boolean,
     currentDescriber: Player?,
     deepLinkGameId: String?,
+    updateDownloaded: Boolean,
     onPlayerNameChange: (String) -> Unit,
     onCreateGame: (Int, Boolean) -> Unit,
     onJoinGame: (String) -> Unit,
@@ -49,7 +50,8 @@ fun MainScreen(
     onListPublicGames: () -> Unit,
     onRestartGame: (Int) -> Unit,
     onLeaveGame: () -> Unit,
-    onClearError: () -> Unit
+    onClearError: () -> Unit,
+    onInstallUpdate: () -> Unit
 ) {
     val palette = LocalConfetti.current
 
@@ -121,6 +123,19 @@ fun MainScreen(
                 containerColor = Tomato
             ) {
                 Text(error, color = palette.paper)
+            }
+        }
+
+        if (updateDownloaded) {
+            Snackbar(
+                modifier = Modifier
+                    .padding(16.dp)
+                    .align(Alignment.BottomCenter),
+                action = {
+                    TextButton(onClick = onInstallUpdate) { Text("Restart", color = palette.paper) }
+                }
+            ) {
+                Text("Update ready to install", color = palette.paper)
             }
         }
     }
