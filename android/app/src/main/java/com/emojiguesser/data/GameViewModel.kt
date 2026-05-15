@@ -7,6 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.emojiguesser.EmojiGuesserApp
 import com.emojiguesser.audio.SoundEvent
 import com.emojiguesser.network.ConnectionState
+import com.emojiguesser.network.SupabaseRealtimeClient
 import com.emojiguesser.network.WebSocketClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -16,6 +17,7 @@ import java.util.UUID
 
 class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val webSocketClient = WebSocketClient()
+    private val realtimeClient = SupabaseRealtimeClient()
     private val prefs = application.getSharedPreferences("emoji_guesser", Context.MODE_PRIVATE)
     private val app get() = getApplication<EmojiGuesserApp>()
 
@@ -66,17 +68,28 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 handleServerMessage(message)
             }
         }
+        viewModelScope.launch {
+            realtimeClient.messages.collect { message ->
+                handleServerMessage(message)
+            }
+        }
+    }
+
+    private fun updateGame(game: Game) {
+        _currentGame.value = game
+        webSocketClient.currentGameId = game.gameId
+        realtimeClient.subscribe(game.gameId)
     }
 
     private fun handleServerMessage(message: ServerMessage) {
         when (message.action) {
             "connected" -> { /* no-op */ }
             "gameCreated", "playerJoined", "gameStarted", "playerNameUpdated",
-            "gameRestarted", "playerLeft", "nextTurn" -> {
+            "gameRestarted", "playerLeft", "nextTurn", "playerReconnected",
+            "spectatorJoined" -> {
                 message.game?.let { game ->
                     val previousPlayerCount = _currentGame.value?.players?.size ?: 0
-                    _currentGame.value = game
-                    webSocketClient.currentGameId = game.gameId
+                    updateGame(game)
                     if (message.action == "nextTurn" || message.action == "gameStarted") {
                         _emojis.value = emptyList()
                         _guesses.value = emptyList()
@@ -98,10 +111,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             "describeWord" -> {
                 _secretWord.value = message.word
                 _wordOptions.value = emptyList()
-                message.game?.let { _currentGame.value = it }
+                message.game?.let { updateGame(it) }
             }
             "turnStarted" -> {
-                message.game?.let { _currentGame.value = it }
+                message.game?.let { updateGame(it) }
                 _currentHint.value = message.hint
                 _emojis.value = emptyList()
                 _guesses.value = emptyList()
@@ -129,7 +142,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
             "wordGuessed" -> {
                 _lastGuessedWord.value = message.word
                 _lastGuesserName.value = message.guesserName
-                message.game?.let { _currentGame.value = it }
+                message.game?.let { updateGame(it) }
                 app.sounds.play(SoundEvent.CorrectGuess)
                 app.haptics.success()
             }
@@ -140,7 +153,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                 app.haptics.warn()
             }
             "gameEnded" -> {
-                message.game?.let { _currentGame.value = it }
+                message.game?.let { updateGame(it) }
                 app.sounds.play(SoundEvent.GameEnd)
             }
             "error" -> {
@@ -160,6 +173,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun disconnect() {
+        realtimeClient.unsubscribe()
         webSocketClient.disconnect()
     }
 
@@ -224,6 +238,7 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
 
     fun leaveGame() {
         webSocketClient.currentGameId = null
+        realtimeClient.unsubscribe()
         _currentGame.value = null
         _emojis.value = emptyList()
         _guesses.value = emptyList()

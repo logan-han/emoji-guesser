@@ -29,6 +29,13 @@ val wsUrl = System.getenv("WS_URL")
     ?: localProperties.getProperty("WS_URL")
     ?: defaultWsUrl
 
+val supabaseUrl = System.getenv("SUPABASE_URL")
+    ?: localProperties.getProperty("SUPABASE_URL")
+    ?: ""
+val supabaseAnonKey = System.getenv("SUPABASE_ANON_KEY")
+    ?: localProperties.getProperty("SUPABASE_ANON_KEY")
+    ?: ""
+
 android {
     namespace = "com.emojiguesser"
     compileSdk = 35
@@ -47,6 +54,9 @@ android {
 
         // WebSocket URL resolved from env var, local.properties, or prod default.
         buildConfigField("String", "WS_URL", "\"$wsUrl\"")
+        // Supabase Realtime config for cross-client game event sync.
+        buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
     }
 
     signingConfigs {

@@ -100,8 +100,8 @@ The Android app provides a native mobile experience with the same real-time mult
     ```
     Open the `android` folder in Android Studio.
 
-2.  **Configure WebSocket URL:**
-    Update the `WS_URL` in `app/build.gradle.kts` or set it as an environment variable.
+2.  **Configure WebSocket and Supabase Realtime:**
+    Set `WS_URL`, `SUPABASE_URL` and `SUPABASE_ANON_KEY` as environment variables, or add them to `android/local.properties`. The app falls back to the bundled prod WebSocket URL if `WS_URL` is unset, and Supabase Realtime is required for receiving game broadcasts (e.g. other players joining or playing).
 
 3.  **Build Debug APK:**
     ```bash
@@ -128,6 +128,7 @@ The Android app is configured for fully automated builds:
 - **Keystore**: Generated once with `generate-keystore.sh`, then base64-encoded and stored as the `KEYSTORE_BASE64` GitHub secret. CI decodes it back to `app/keystore.jks` on every run so each release is signed with the same upload key.
 - **Signing credentials**: Read from secrets `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`. Local builds can fall back to `keystore.properties`.
 - **WebSocket URL**: Set via the `WS_URL` GitHub secret (or env var for local builds).
+- **Supabase Realtime**: Set via `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY` secrets so the Android app can subscribe to game broadcast events.
 
 **Required secrets for Play Store publishing:**
 
@@ -138,6 +139,8 @@ The Android app is configured for fully automated builds:
 | `KEY_ALIAS` | Signing key alias |
 | `KEY_PASSWORD` | Signing key password |
 | `WS_URL` | Production WebSocket URL from backend deploy |
+| `SUPABASE_URL` | Supabase project API URL (shared with backend) |
+| `SUPABASE_PUBLISHABLE_KEY` | Supabase publishable/anon key (shared with frontend) |
 | `PLAY_STORE_SERVICE_ACCOUNT_JSON` | Google Play service account JSON (optional) |
 
 The Play Store upload step only runs if `PLAY_STORE_SERVICE_ACCOUNT_JSON` is configured. See `android/play-store/README.md` for the listing copy, privacy policy, and Data Safety checklist.
