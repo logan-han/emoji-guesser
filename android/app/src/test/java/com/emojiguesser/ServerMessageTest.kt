@@ -284,8 +284,8 @@ class ServerMessageTest {
     }
 
     @Test
-    fun `lenient JSON parses single-quoted strings`() {
-        val payload = "{'action':'connected','connectionId':'c1'}"
+    fun `lenient JSON parses unquoted strings`() {
+        val payload = "{action:connected,connectionId:c1}"
         val message = json.decodeFromString<ServerMessage>(payload)
         assertEquals("connected", message.action)
         assertEquals("c1", message.connectionId)
