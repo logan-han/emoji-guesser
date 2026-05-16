@@ -1,5 +1,6 @@
 package com.emojiguesser.ui.screens
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,7 +12,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -22,11 +24,23 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.emojiguesser.R
 import com.emojiguesser.data.Game
+import com.emojiguesser.data.Player
+import com.emojiguesser.ui.components.Avatar
 import com.emojiguesser.ui.components.StampButton
 import com.emojiguesser.ui.components.StampButtonStyle
 import com.emojiguesser.ui.components.StampCard
@@ -51,8 +65,6 @@ fun GameEndScreen(
 ) {
     val palette = LocalConfetti.current
     val sortedPlayers = game.players.sortedByDescending { it.score }
-    val winner = sortedPlayers.firstOrNull()
-
     var celebrate by remember { mutableStateOf(true) }
     LaunchedEffect(Unit) { celebrate = true }
 
@@ -60,114 +72,40 @@ fun GameEndScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 18.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            Text(stringResource(R.string.end_final_results), style = MaterialTheme.typography.labelMedium, color = palette.inkSoft)
             Text(
-                "Game over",
-                style = MaterialTheme.typography.displaySmall,
-                color = palette.ink,
-                fontWeight = FontWeight.SemiBold
+                buildAnnotatedString {
+                    append(stringResource(R.string.end_game_word))
+                    append(" ")
+                    withStyle(SpanStyle(fontStyle = FontStyle.Italic)) { append(stringResource(R.string.end_over_word)) }
+                },
+                style = MaterialTheme.typography.displayMedium,
+                color = palette.ink
             )
 
             Spacer(Modifier.height(12.dp))
+            Podium(players = sortedPlayers.take(3))
+            Spacer(Modifier.height(10.dp))
 
-            winner?.let {
-                StampCard(modifier = Modifier.fillMaxWidth(), fill = Gold, rotationDeg = -1.5f, contentPadding = 12.dp) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("👑", fontSize = 40.sp)
-                        Spacer(Modifier.width(10.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                "Winner",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = palette.ink
-                            )
-                            Text(
-                                it.name,
-                                style = MaterialTheme.typography.headlineSmall,
-                                color = palette.ink,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                        Text(
-                            "${it.score} pts",
-                            style = MaterialTheme.typography.titleLarge,
-                            color = palette.ink,
-                            fontWeight = FontWeight.SemiBold
-                        )
+            StampCard(modifier = Modifier.fillMaxWidth().weight(1f), contentPadding = 4.dp) {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    itemsIndexed(sortedPlayers) { index, player ->
+                        ScoreRow(index = index, player = player)
                     }
                 }
             }
 
             Spacer(Modifier.height(10.dp))
-
-            StampCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                contentPadding = 12.dp
-            ) {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    items(sortedPlayers.withIndex().toList()) { (index, player) ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                "${index + 1}.",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = when (index) {
-                                    0 -> Gold
-                                    1 -> palette.inkSoft
-                                    2 -> Tomato
-                                    else -> palette.inkSoft
-                                },
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.width(28.dp)
-                            )
-                            Text(
-                                player.name,
-                                style = MaterialTheme.typography.bodyLarge,
-                                modifier = Modifier.weight(1f),
-                                color = palette.ink
-                            )
-                            Text(
-                                "${player.score}",
-                                style = MaterialTheme.typography.titleMedium,
-                                color = palette.ink,
-                                fontWeight = FontWeight.SemiBold
-                            )
-                        }
-                    }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                StampButton(onClick = onLeaveGame, style = StampButtonStyle.Secondary, modifier = Modifier.weight(1f)) {
+                    Text(stringResource(R.string.waiting_leave))
                 }
-            }
-
-            Spacer(Modifier.height(10.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                StampButton(
-                    onClick = onLeaveGame,
-                    style = StampButtonStyle.Secondary,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text("Leave")
-                }
-
                 if (isOwner) {
-                    StampButton(
-                        onClick = { onRestartGame(game.timeLimit) },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Play again")
+                    StampButton(onClick = { onRestartGame(game.timeLimit) }, modifier = Modifier.weight(1f)) {
+                        Text(stringResource(R.string.end_play_again_arrow))
                     }
                 }
             }
@@ -179,21 +117,101 @@ fun GameEndScreen(
                 parties = listOf(
                     Party(
                         speed = 0f,
-                        maxSpeed = 30f,
-                        damping = 0.9f,
-                        spread = 360,
-                        colors = listOf(
-                            Tomato.toArgb(),
-                            Gold.toArgb(),
-                            Teal.toArgb(),
-                            Plum.toArgb(),
-                            Sage.toArgb()
-                        ),
-                        emitter = Emitter(duration = 3, TimeUnit.SECONDS).perSecond(80),
-                        position = Position.Relative(0.5, 0.2)
+                        maxSpeed = 14f,
+                        damping = 0.92f,
+                        spread = 80,
+                        colors = listOf(Tomato.toArgb(), Gold.toArgb(), Teal.toArgb(), Plum.toArgb(), Sage.toArgb()),
+                        emitter = Emitter(duration = 2200, TimeUnit.MILLISECONDS).perSecond(22),
+                        position = Position.Relative(0.15, 0.05)
+                    ),
+                    Party(
+                        speed = 0f,
+                        maxSpeed = 14f,
+                        damping = 0.92f,
+                        spread = 80,
+                        colors = listOf(Tomato.toArgb(), Gold.toArgb(), Teal.toArgb(), Plum.toArgb(), Sage.toArgb()),
+                        emitter = Emitter(duration = 2200, TimeUnit.MILLISECONDS).perSecond(22),
+                        position = Position.Relative(0.85, 0.05)
                     )
                 )
             )
         }
+    }
+}
+
+@Composable
+private fun Podium(players: List<Player>) {
+    Row(
+        modifier = Modifier.fillMaxWidth().height(190.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.Bottom
+    ) {
+        PodiumBlock(player = players.getOrNull(1), rank = 2, color = Teal, height = 120, modifier = Modifier.weight(1f))
+        PodiumBlock(player = players.getOrNull(0), rank = 1, color = Gold, height = 150, crowned = true, modifier = Modifier.weight(1f))
+        PodiumBlock(player = players.getOrNull(2), rank = 3, color = Tomato, height = 95, modifier = Modifier.weight(1f))
+    }
+}
+
+@Composable
+private fun PodiumBlock(
+    player: Player?,
+    rank: Int,
+    color: Color,
+    height: Int,
+    modifier: Modifier = Modifier,
+    crowned: Boolean = false
+) {
+    val palette = LocalConfetti.current
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Bottom) {
+        if (crowned) Text("👑", fontSize = 24.sp)
+        Text(player?.name ?: "—", style = MaterialTheme.typography.bodyMedium, color = palette.ink, fontWeight = FontWeight.SemiBold, maxLines = 1)
+        Spacer(Modifier.height(6.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(height.dp)
+                .drawBehind {
+                    val offset = 4.dp.toPx()
+                    drawRoundRect(
+                        color = palette.ink,
+                        topLeft = Offset(offset, offset),
+                        size = Size(size.width, size.height),
+                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(14.dp.toPx())
+                    )
+                }
+                .background(color, RoundedCornerShape(14.dp))
+                .padding(8.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("#$rank", style = MaterialTheme.typography.displaySmall, color = palette.paper)
+                Text("${player?.score ?: 0}", style = MaterialTheme.typography.titleLarge, color = palette.paper, fontWeight = FontWeight.SemiBold)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ScoreRow(index: Int, player: Player) {
+    val palette = LocalConfetti.current
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            "${index + 1}",
+            style = MaterialTheme.typography.displaySmall,
+            color = when (index) {
+                0 -> Gold
+                1 -> Teal
+                2 -> Tomato
+                else -> palette.inkSoft
+            },
+            modifier = Modifier.width(30.dp)
+        )
+        Avatar(player.name, size = 32.dp)
+        Spacer(Modifier.width(10.dp))
+        Text(player.name, style = MaterialTheme.typography.bodyLarge, color = palette.ink, modifier = Modifier.weight(1f))
+        Text(stringResource(R.string.end_points_short, player.score), style = MaterialTheme.typography.headlineLarge, color = palette.ink, fontWeight = FontWeight.SemiBold)
     }
 }

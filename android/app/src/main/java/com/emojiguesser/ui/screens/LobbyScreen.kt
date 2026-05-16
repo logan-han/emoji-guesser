@@ -1,5 +1,6 @@
 package com.emojiguesser.ui.screens
 
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -11,7 +12,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -21,32 +21,37 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.emojiguesser.R
 import com.emojiguesser.data.Game
 import com.emojiguesser.network.ConnectionState
+import com.emojiguesser.ui.components.Avatar
 import com.emojiguesser.ui.components.BrandMark
 import com.emojiguesser.ui.components.ConnectionPill
+import com.emojiguesser.ui.components.PresetChipsRow
 import com.emojiguesser.ui.components.StampButton
 import com.emojiguesser.ui.components.StampButtonStyle
 import com.emojiguesser.ui.components.StampCard
@@ -84,7 +89,7 @@ fun LobbyScreen(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp, vertical = 10.dp)
+            .padding(horizontal = 18.dp, vertical = 10.dp)
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -95,207 +100,134 @@ fun LobbyScreen(
             ConnectionPill(state = connectionState)
         }
 
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = stringResource(R.string.lobby_description),
+            style = MaterialTheme.typography.bodyMedium,
+            color = palette.inkSoft
+        )
+
         Spacer(Modifier.height(12.dp))
 
-        StampCard(modifier = Modifier.fillMaxWidth(), contentPadding = 12.dp) {
-            OutlinedTextField(
-                value = playerName,
-                onValueChange = { if (it.length <= 20) onPlayerNameChange(it) },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("Your name") },
-                singleLine = true,
-                shape = RoundedCornerShape(10.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = palette.ink,
-                    unfocusedBorderColor = palette.hairlineStrong
-                )
-            )
+        StampCard(modifier = Modifier.fillMaxWidth(), contentPadding = 14.dp) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(stringResource(R.string.lobby_your_name), style = MaterialTheme.typography.labelMedium, color = palette.inkSoft)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Avatar(playerName.ifBlank { stringResource(R.string.lobby_name_hint) }, size = 36.dp)
+                    Spacer(Modifier.width(10.dp))
+                    OutlinedTextField(
+                        value = playerName,
+                        onValueChange = { if (it.length <= 20) onPlayerNameChange(it) },
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text(stringResource(R.string.lobby_name_hint)) },
+                        singleLine = true,
+                        textStyle = MaterialTheme.typography.displaySmall.copy(color = palette.ink),
+                        trailingIcon = { Icon(Icons.Default.Edit, contentDescription = stringResource(R.string.lobby_edit_name), tint = palette.inkSoft) },
+                        shape = RoundedCornerShape(10.dp),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = palette.hairlineStrong,
+                            unfocusedBorderColor = palette.hairline,
+                            focusedContainerColor = palette.bg,
+                            unfocusedContainerColor = palette.bg
+                        )
+                    )
+                }
+            }
         }
 
         Spacer(Modifier.height(10.dp))
 
-        StampCard(modifier = Modifier.fillMaxWidth(), contentPadding = 12.dp) {
-            Column {
-                Text("Create game", style = MaterialTheme.typography.titleMedium, color = palette.ink, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(8.dp))
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    VisibilityChip(
-                        label = "🌍 Public",
-                        selected = isPublicGame,
-                        onClick = { isPublicGame = true },
-                        modifier = Modifier.weight(1f)
-                    )
-                    VisibilityChip(
-                        label = "🔒 Private",
-                        selected = !isPublicGame,
-                        onClick = { isPublicGame = false },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                Spacer(Modifier.height(8.dp))
-
+        StampCard(modifier = Modifier.fillMaxWidth(), contentPadding = 14.dp) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(stringResource(R.string.lobby_create_title), style = MaterialTheme.typography.headlineLarge, color = palette.ink)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        "Round timer",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = palette.inkSoft,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Text(
-                        "${timeLimit}s",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = palette.ink,
-                        fontWeight = FontWeight.SemiBold
-                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(stringResource(R.string.lobby_public_game), style = MaterialTheme.typography.titleLarge, color = palette.ink)
+                        Text(stringResource(R.string.lobby_public_desc), style = MaterialTheme.typography.bodyMedium, color = palette.inkSoft)
+                    }
+                    StampToggle(checked = isPublicGame, onCheckedChange = { isPublicGame = it })
                 }
-                Slider(
-                    value = timeLimit.toFloat(),
-                    onValueChange = { timeLimit = it.toInt() },
-                    valueRange = 30f..300f,
-                    steps = 8,
-                    colors = SliderDefaults.colors(
-                        thumbColor = palette.ink,
-                        activeTrackColor = palette.ink,
-                        inactiveTrackColor = palette.bg2
-                    )
-                )
-
-                Spacer(Modifier.height(8.dp))
-
-                Text(
-                    "Total rounds",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = palette.inkSoft
-                )
-                Spacer(Modifier.height(6.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.lobby_round_time), style = MaterialTheme.typography.labelMedium, color = palette.inkSoft)
+                    PresetChipsRow(selectedSeconds = timeLimit, onSelected = { timeLimit = it })
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
                     (2..5).forEach { rounds ->
-                        RoundOptionChip(
-                            label = "$rounds",
+                        SmallChip(
+                            label = rounds.toString(),
                             selected = maxRounds == rounds,
                             onClick = { maxRounds = rounds },
                             modifier = Modifier.weight(1f)
                         )
                     }
                 }
-
-                Spacer(Modifier.height(12.dp))
-
                 StampButton(
                     onClick = { onCreateGame(timeLimit, maxRounds, isPublicGame) },
                     enabled = playerName.isNotBlank(),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text("Create ${if (isPublicGame) "public" else "private"} game")
+                    Text(stringResource(R.string.lobby_create_game))
                 }
             }
         }
 
         Spacer(Modifier.height(10.dp))
 
-        StampCard(modifier = Modifier.fillMaxWidth(), contentPadding = 12.dp) {
-            Column {
-                Text("Join by code", style = MaterialTheme.typography.titleMedium, color = palette.ink, fontWeight = FontWeight.SemiBold)
-                Spacer(Modifier.height(8.dp))
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    OutlinedTextField(
-                        value = joinGameId,
-                        onValueChange = { joinGameId = it.uppercase().take(6) },
-                        modifier = Modifier.weight(1f),
-                        placeholder = { Text("ABCDEF") },
-                        singleLine = true,
-                        shape = RoundedCornerShape(10.dp),
-                        textStyle = LocalTextStyle.current.copy(
-                            letterSpacing = 4.sp,
-                            fontFamily = MonoFamily
-                        ),
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-                        keyboardActions = KeyboardActions(onGo = {
-                            if (joinGameId.isNotBlank() && playerName.isNotBlank()) onJoinGame(joinGameId)
-                        }),
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = palette.ink,
-                            unfocusedBorderColor = palette.hairlineStrong
-                        )
-                    )
-                    StampButton(
-                        onClick = { onJoinGame(joinGameId) },
-                        enabled = joinGameId.isNotBlank() && playerName.isNotBlank(),
-                        style = StampButtonStyle.Secondary,
-                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
-                    ) {
-                        Text("Join")
-                    }
-                }
-            }
-        }
-
-        Spacer(Modifier.height(10.dp))
-
-        StampCard(modifier = Modifier.fillMaxWidth(), contentPadding = 12.dp) {
-            Column {
+        StampCard(modifier = Modifier.fillMaxWidth(), contentPadding = 14.dp) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "Public rooms",
-                        style = MaterialTheme.typography.titleMedium,
+                        stringResource(R.string.lobby_join_by_code),
+                        style = MaterialTheme.typography.headlineLarge,
                         color = palette.ink,
-                        fontWeight = FontWeight.SemiBold,
                         modifier = Modifier.weight(1f)
                     )
-                    Text(
-                        "${publicGames.size}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = palette.inkSoft
-                    )
+                    PublicGamesBadge(count = publicGames.size)
                 }
+                OutlinedTextField(
+                    value = joinGameId,
+                    onValueChange = { joinGameId = it.uppercase().take(6) },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = { Text(stringResource(R.string.lobby_code_placeholder), textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth()) },
+                    singleLine = true,
+                    textStyle = LocalTextStyle.current.copy(
+                        letterSpacing = 6.sp,
+                        fontSize = 22.sp,
+                        fontFamily = MonoFamily,
+                        textAlign = TextAlign.Center
+                    ),
+                    shape = RoundedCornerShape(10.dp),
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+                    keyboardActions = KeyboardActions(onGo = {
+                        if (joinGameId.isNotBlank() && playerName.isNotBlank()) onJoinGame(joinGameId)
+                    }),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = palette.ink,
+                        unfocusedBorderColor = palette.hairlineStrong,
+                        focusedContainerColor = palette.bg,
+                        unfocusedContainerColor = palette.bg
+                    )
+                )
+                StampButton(
+                    onClick = { onJoinGame(joinGameId) },
+                    enabled = joinGameId.isNotBlank() && playerName.isNotBlank(),
+                    style = StampButtonStyle.Secondary,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(stringResource(R.string.lobby_join_game))
+                }
+            }
+        }
 
-                Spacer(Modifier.height(8.dp))
-
-                if (publicGames.isEmpty()) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 80.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("🎯", fontSize = 28.sp)
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                "No public rooms yet",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = palette.inkSoft,
-                                textAlign = TextAlign.Center
-                            )
-                            Text(
-                                "Create one to get started",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = palette.inkSoft,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                    }
-                } else {
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        publicGames.forEach { game ->
-                            PublicGameRow(
-                                game = game,
-                                enabled = playerName.isNotBlank(),
-                                onClick = { onJoinGame(game.gameId) }
-                            )
-                        }
-                    }
+        if (publicGames.isNotEmpty()) {
+            Spacer(Modifier.height(10.dp))
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                publicGames.take(3).forEach { game ->
+                    PublicGameRow(
+                        game = game,
+                        enabled = playerName.isNotBlank(),
+                        onClick = { onJoinGame(game.gameId) }
+                    )
                 }
             }
         }
@@ -305,124 +237,87 @@ fun LobbyScreen(
 }
 
 @Composable
-private fun RoundOptionChip(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
+private fun StampToggle(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
     val palette = LocalConfetti.current
-    val bg = if (selected) palette.ink else palette.paper
-    val fg = if (selected) palette.paper else palette.ink
+    val knobOffset by animateDpAsState(if (checked) 20.dp else 2.dp, label = "toggle")
     Box(
-        modifier = modifier
-            .clip(RoundedCornerShape(10.dp))
-            .background(bg)
-            .clickable(onClick = onClick)
-            .padding(vertical = 9.dp),
-        contentAlignment = Alignment.Center
+        modifier = Modifier
+            .size(width = 44.dp, height = 24.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(if (checked) Sage else palette.bg2)
+            .clickable { onCheckedChange(!checked) }
+            .padding(2.dp)
     ) {
-        Text(
-            label,
-            color = fg,
-            fontWeight = FontWeight.SemiBold,
-            style = MaterialTheme.typography.bodyMedium
+        Box(
+            modifier = Modifier
+                .padding(start = knobOffset)
+                .size(20.dp)
+                .clip(CircleShape)
+                .background(palette.paper)
         )
     }
 }
 
 @Composable
-private fun VisibilityChip(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
+private fun PublicGamesBadge(count: Int) {
     val palette = LocalConfetti.current
-    val bg = if (selected) palette.ink else palette.paper
-    val fg = if (selected) palette.paper else palette.ink
-    Box(
-        modifier = modifier
+    Row(
+        modifier = Modifier
             .clip(RoundedCornerShape(10.dp))
-            .background(bg)
-            .clickable(onClick = onClick)
-            .padding(vertical = 10.dp),
-        contentAlignment = Alignment.Center
+            .background(Tomato)
+            .padding(horizontal = 8.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
-        Text(label, color = fg, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+        Text(stringResource(R.string.lobby_public_games_cta), style = MaterialTheme.typography.labelMedium, color = palette.paper)
+        Text(count.toString(), style = MaterialTheme.typography.labelMedium, color = palette.paper)
     }
 }
 
 @Composable
-private fun PublicGameRow(
-    game: Game,
-    enabled: Boolean,
-    onClick: () -> Unit
-) {
+private fun SmallChip(label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val palette = LocalConfetti.current
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (selected) palette.ink else palette.paper)
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = if (selected) palette.paper else palette.ink, fontWeight = FontWeight.SemiBold)
+    }
+}
+
+@Composable
+private fun PublicGameRow(game: Game, enabled: Boolean, onClick: () -> Unit) {
     val palette = LocalConfetti.current
     val isPlaying = game.gameState == "IN_PROGRESS"
     val ownerName = game.players.firstOrNull { it.connectionId == game.ownerId }?.name
         ?: game.players.firstOrNull()?.name
-        ?: "—"
+        ?: stringResource(R.string.waiting_host)
 
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(palette.bg2)
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Box(
-            modifier = Modifier
-                .size(34.dp)
-                .clip(CircleShape)
-                .background(palette.paper),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("🎭", fontSize = 18.sp)
-        }
-        Spacer(Modifier.width(10.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                game.gameId,
-                style = MaterialTheme.typography.bodyLarge.copy(fontFamily = MonoFamily, letterSpacing = 2.sp),
-                color = palette.ink,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                "Host: $ownerName",
-                style = MaterialTheme.typography.bodySmall,
-                color = palette.inkSoft,
-                maxLines = 1
-            )
-        }
+    StampCard(modifier = Modifier.fillMaxWidth(), contentPadding = 12.dp, stampOffset = 3.dp) {
         Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(enabled = enabled, onClick = onClick),
+            verticalAlignment = Alignment.CenterVertically
         ) {
+            Avatar(ownerName, size = 40.dp)
+            Spacer(Modifier.width(10.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text("$ownerName's game", style = MaterialTheme.typography.titleMedium, color = palette.ink, fontWeight = FontWeight.SemiBold)
+                Text(game.gameId, style = MaterialTheme.typography.bodyMedium.copy(fontFamily = MonoFamily, letterSpacing = 2.sp), color = palette.inkSoft)
+            }
             Box(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
+                    .clip(RoundedCornerShape(8.dp))
                     .background(if (isPlaying) Tomato else Sage)
-                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
             ) {
-                Text(
-                    if (isPlaying) "Playing" else "Waiting",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = palette.paper,
-                    fontWeight = FontWeight.SemiBold
-                )
+                Text("${game.players.size} · ${game.timeLimit}s", style = MaterialTheme.typography.labelMedium, color = palette.paper)
             }
-            Spacer(Modifier.width(2.dp))
-            Text("👥", fontSize = 14.sp)
-            Text(
-                "${game.players.size}",
-                style = MaterialTheme.typography.bodyMedium,
-                color = palette.ink,
-                fontWeight = FontWeight.SemiBold
-            )
         }
     }
 }
