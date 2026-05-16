@@ -247,28 +247,31 @@ input, select, textarea { font: inherit; color: inherit; }
   margin: 0;
 }
 
-.hero-side {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 10px;
-  align-items: stretch;
-}
-.hero-tile {
+.hero-art {
+  display: block;
+  width: min(100%, 520px);
+  margin-left: auto;
   aspect-ratio: 1;
   border: 1.5px solid var(--line);
-  border-radius: var(--r-md);
-  display: grid; place-items: center;
+  border-radius: var(--r-lg);
+  overflow: hidden;
   background: var(--paper);
-  font-size: clamp(22px, 3vw, 32px);
   box-shadow: var(--shadow-stamp);
-  position: relative;
+  transform: rotate(1deg);
 }
-.hero-tile:nth-child(1) { transform: rotate(-3deg); background: color-mix(in oklab, var(--gold) 18%, var(--paper)); }
-.hero-tile:nth-child(2) { transform: rotate(2deg) translateY(-6px); }
-.hero-tile:nth-child(3) { transform: rotate(-1deg); background: color-mix(in oklab, var(--teal) 18%, var(--paper)); }
-.hero-tile:nth-child(4) { transform: rotate(2deg) translateY(4px); background: color-mix(in oklab, var(--tomato) 16%, var(--paper)); }
-.hero-tile:nth-child(5) { transform: rotate(-2deg); }
-.hero-tile:nth-child(6) { transform: rotate(3deg) translateY(-2px); background: color-mix(in oklab, var(--plum) 14%, var(--paper)); }
+.hero-art img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+@media (max-width: 880px) {
+  .hero-art {
+    width: min(100%, 420px);
+    margin: 0;
+    transform: none;
+  }
+}
 
 /* ---------- Cards ---------- */
 

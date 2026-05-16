@@ -1040,11 +1040,15 @@ const App: React.FC = () => {
                 Everyone else races to guess. Best score after the final round wins.
               </p>
             </div>
-            <div className="hero-side" aria-hidden="true">
-              <div className="hero-tile">🗼</div>
-              <div className="hero-tile">🌊</div>
-              <div className="hero-tile">💡</div>
-            </div>
+            <picture className="hero-art">
+              <source srcSet="/images/emoji-guesser-hero.webp" type="image/webp" />
+              <img
+                src="/images/emoji-guesser-hero.png"
+                alt="Emoji clue cards, a timer, and player pieces arranged on a tabletop"
+                width="900"
+                height="900"
+              />
+            </picture>
           </section>
 
           <div className="lobby-grid">
