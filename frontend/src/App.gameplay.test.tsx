@@ -57,7 +57,7 @@ describe('App - gameplay', () => {
     });
   });
 
-  test('guesser submitting a guess sends submitGuess with the text', async () => {
+  test('guesser submitting a guess sends the sanitized text', async () => {
     await renderAndConnect(App);
     sendServerMessage(
       fixtures.gameStarted({
@@ -77,14 +77,60 @@ describe('App - gameplay', () => {
     );
 
     fireEvent.change(screen.getByPlaceholderText('Type your guess...'), {
-      target: { value: 'dog' },
+      target: { value: '  <b>DOG</b>  ' },
     });
     fireEvent.click(screen.getByText('Guess'));
 
-    await waitFor(() => {
-      expect(mockSend).toHaveBeenCalledWith(expect.stringContaining('submitGuess'));
-      expect(mockSend).toHaveBeenCalledWith(expect.stringContaining('dog'));
+    await waitFor(() => expect(mockSend).toHaveBeenCalledWith(expect.stringContaining('submitGuess')));
+
+    const guessPayload = mockSend.mock.calls
+      .map(([payload]) => payload)
+      .find((payload) => payload.includes('"action":"submitGuess"'));
+    expect(guessPayload).toBeDefined();
+    const guessMessage = JSON.parse(guessPayload as string);
+    expect(guessMessage).toMatchObject({
+      action: 'submitGuess',
+      gameId: 'GAME123',
+      guess: 'dog',
     });
+  });
+
+  test('rapid duplicate guesses are rate limited', async () => {
+    await renderAndConnect(App);
+    sendServerMessage(
+      fixtures.gameStarted({
+        players: [
+          { name: 'Describer', connectionId: 'other-conn', score: 0 },
+          { name: 'Me', connectionId: 'test-conn', score: 0 },
+        ],
+        ownerId: 'other-conn',
+        currentDescriberIndex: 0,
+        turnState: 'DESCRIBING',
+        currentHint: '_ _ _',
+      })
+    );
+
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText('Type your guess...')).toBeInTheDocument()
+    );
+
+    const nowSpy = jest.spyOn(Date, 'now')
+      .mockReturnValueOnce(1000)
+      .mockReturnValueOnce(1200);
+
+    const input = screen.getByPlaceholderText('Type your guess...');
+    fireEvent.change(input, { target: { value: 'dog' } });
+    fireEvent.click(screen.getByText('Guess'));
+    fireEvent.change(input, { target: { value: 'cat' } });
+    fireEvent.click(screen.getByText('Guess'));
+
+    const submitGuesses = mockSend.mock.calls
+      .map(([payload]) => JSON.parse(payload))
+      .filter((payload) => payload.action === 'submitGuess');
+    expect(submitGuesses).toHaveLength(1);
+    expect(submitGuesses[0].guess).toBe('dog');
+
+    nowSpy.mockRestore();
   });
 
   test('renders incoming emojis on the screen', async () => {

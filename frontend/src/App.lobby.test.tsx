@@ -20,15 +20,27 @@ installBrowserMocks();
 describe('App - lobby flow', () => {
   beforeEach(resetTestMocks);
 
-  test('creating a game sends a createGame action over the socket', async () => {
+  test('creating a game sends sanitized createGame settings over the socket', async () => {
     await renderAndConnect(App);
 
-    fireEvent.change(screen.getByLabelText('Your name'), { target: { value: 'TestPlayer' } });
+    fireEvent.change(screen.getByLabelText('Your name'), { target: { value: '  <b>TestPlayer</b>  ' } });
     fireEvent.click(screen.getByText('Create New Game'));
 
-    await waitFor(() => {
-      expect(mockSend).toHaveBeenCalledWith(expect.stringContaining('createGame'));
+    await waitFor(() => expect(mockSend).toHaveBeenCalledWith(expect.stringContaining('createGame')));
+
+    const createPayload = mockSend.mock.calls
+      .map(([payload]) => payload)
+      .find((payload) => payload.includes('"action":"createGame"'));
+    expect(createPayload).toBeDefined();
+    const createMessage = JSON.parse(createPayload as string);
+    expect(createMessage).toMatchObject({
+      action: 'createGame',
+      playerName: 'TestPlayer',
+      timeLimit: 120,
+      maxRounds: 2,
+      isPublic: false,
     });
+    expect(createMessage.sessionId).toEqual(expect.any(String));
   });
 
   test('shows the lobby UI when gameCreated is received', async () => {

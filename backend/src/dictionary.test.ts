@@ -5,13 +5,18 @@ jest.mock('random-words', () => ({
   generate: jest.fn()
 }));
 
-// Mock compromise with a simple mock
+const mockNounOutputQueue: string[][] = [];
+
+// Mock compromise with controllable noun output so tests can exercise filtering and retries
 jest.mock('compromise', () => {
-  return jest.fn(() => ({
+  return jest.fn((text: string) => ({
     nouns: () => ({
       out: (format: string) => {
         if (format === 'array') {
-          return ['cat', 'dog', 'house', 'tree', 'book', 'phone', 'table', 'chair', 'water', 'fire'];
+          if (mockNounOutputQueue.length > 0) {
+            return mockNounOutputQueue.shift();
+          }
+          return text.split(/\s+/).filter(Boolean);
         }
         return [];
       }
@@ -38,6 +43,7 @@ describe('Dictionary Functions', () => {
   describe('getRandomWords', () => {
     beforeEach(() => {
       jest.clearAllMocks();
+      mockNounOutputQueue.length = 0;
     });
 
     test('should return 3 random words', async () => {
@@ -60,6 +66,22 @@ describe('Dictionary Functions', () => {
       
       expect(words).toHaveLength(3);
       expect(words.every(word => typeof word === 'string')).toBe(true);
+    });
+
+    test('should filter invalid nouns and retry until it has 3 unique words', async () => {
+      const mockGenerate = generate as jest.MockedFunction<typeof generate>;
+      mockGenerate
+        .mockReturnValueOnce(['cat', 'cat', 'verylongwordname'] as any)
+        .mockReturnValueOnce(['space', 'dog', 'bird'] as any);
+      mockNounOutputQueue.push(
+        ['cat', 'cat', 'verylongwordname', 'space word'],
+        ['space', 'dog', 'bird']
+      );
+
+      const words = await getRandomWords();
+
+      expect(words).toEqual(['cat', 'space', 'dog']);
+      expect(mockGenerate).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -174,10 +196,12 @@ describe('Dictionary Functions', () => {
   describe('getRandomWords edge cases', () => {
     test('should handle generate returning single word as string', async () => {
       const mockGenerate = generate as jest.MockedFunction<typeof generate>;
-      mockGenerate.mockReturnValue('singleword' as any);
+      mockGenerate
+        .mockReturnValueOnce('singleword' as any)
+        .mockReturnValueOnce(['cat', 'dog'] as any);
 
       const words = await getRandomWords();
-      expect(words).toHaveLength(3);
+      expect(words).toEqual(['singleword', 'cat', 'dog']);
     });
 
     test('should return unique words', async () => {
