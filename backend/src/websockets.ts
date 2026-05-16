@@ -55,14 +55,16 @@ const sendMessageToClient = async (connectionId: string, payload: any, event: AP
 };
 
 const broadcastToPlayers = async (playerIds: string[], payload: any, event: APIGatewayEvent, gameId?: string) => {
+    // Send via both Realtime (for web clients) and direct WS (more reliable for mobile)
+    // so a missed Realtime broadcast does not stall the lobby/waiting room.
     const realtimeGameId = gameId || payload.game?.gameId;
+    const tasks: Promise<unknown>[] = playerIds.map(id => sendMessageToClient(id, payload, event));
     if (realtimeGameId) {
-        await publishGameEvent(realtimeGameId, payload);
-        return;
+        tasks.push(publishGameEvent(realtimeGameId, payload).catch(err => {
+            console.error(`Realtime publish failed for ${realtimeGameId}:`, err);
+        }));
     }
-
-    const broadcastPromises = playerIds.map(id => sendMessageToClient(id, payload, event));
-    await Promise.all(broadcastPromises);
+    await Promise.all(tasks);
 };
 
 const scheduleRoundTimeout = (gameId: string, timeLimit: number) => {
@@ -634,7 +636,10 @@ async function joinGame(connectionId: string, gameId: string, event: APIGatewayE
         console.log(`Player ${connectionId} joined game ${gameId}`);
 
         await sendMessageToClient(connectionId, { action: 'playerJoined', game }, event);
-        await publishGameEvent(gameId, { action: 'playerJoined', game });
+        const otherIds = game.players
+            .map((p: any) => p.connectionId)
+            .filter((id: string) => id && id !== connectionId);
+        await broadcastToPlayers(otherIds, { action: 'playerJoined', game }, event, gameId);
 
     } catch (error) {
         console.error(`Failed to join game ${gameId}:`, error);

@@ -26,15 +26,15 @@ fun ErrorScreen(message: String) {
     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.padding(32.dp)
+            modifier = Modifier.padding(20.dp)
         ) {
             Icon(
                 Icons.Default.WarningAmber,
                 contentDescription = null,
                 tint = Tomato,
-                modifier = Modifier.size(64.dp)
+                modifier = Modifier.size(56.dp)
             )
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(12.dp))
             Text(
                 message,
                 style = MaterialTheme.typography.bodyLarge,

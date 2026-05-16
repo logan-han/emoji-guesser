@@ -26,7 +26,7 @@ fun StampCard(
     stampOffset: Dp = 3.dp,
     fill: Color? = null,
     border: Color? = null,
-    contentPadding: Dp = 16.dp,
+    contentPadding: Dp = 12.dp,
     content: @Composable () -> Unit
 ) {
     val palette = LocalConfetti.current

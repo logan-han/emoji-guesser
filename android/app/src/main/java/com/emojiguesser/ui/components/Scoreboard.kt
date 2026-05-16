@@ -48,17 +48,17 @@ fun Scoreboard(
                     .clip(RoundedCornerShape(10.dp))
                     .background(bg)
                     .border(1.dp, palette.ink, RoundedCornerShape(10.dp))
-                    .padding(horizontal = 12.dp, vertical = 8.dp)
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
             ) {
                 Text(
                     player.name,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodySmall,
                     color = fg,
                     fontWeight = FontWeight.Medium
                 )
                 Text(
                     score.toString(),
-                    style = MaterialTheme.typography.headlineMedium,
+                    style = MaterialTheme.typography.titleLarge,
                     color = fg,
                     fontWeight = FontWeight.SemiBold
                 )

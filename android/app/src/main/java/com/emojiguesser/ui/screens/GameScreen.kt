@@ -87,9 +87,9 @@ fun GameScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(16.dp)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
-        StampCard(modifier = Modifier.fillMaxWidth(), contentPadding = 12.dp) {
+        StampCard(modifier = Modifier.fillMaxWidth(), contentPadding = 10.dp) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text(
@@ -100,7 +100,7 @@ fun GameScreen(
                     )
                     Text(
                         "Describer: ${currentDescriber?.name ?: "Unknown"}",
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodySmall,
                         color = palette.inkSoft
                     )
                 }
@@ -110,7 +110,7 @@ fun GameScreen(
             }
         }
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(8.dp))
 
         if (wordOptions.isNotEmpty() && isDescriber) {
             StampCard(modifier = Modifier.fillMaxWidth(), fill = Gold) {
@@ -129,7 +129,7 @@ fun GameScreen(
                     }
                 }
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
         }
 
         if (secretWord != null && isDescriber) {
@@ -145,7 +145,7 @@ fun GameScreen(
                     Text("Describe using only emojis", style = MaterialTheme.typography.bodyMedium, color = palette.paper)
                 }
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
         }
 
         if (!isDescriber && currentHint != null) {
@@ -156,7 +156,7 @@ fun GameScreen(
                     HintTiles(currentHint)
                 }
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
         }
 
         if (lastGuessedWord != null) {
@@ -171,20 +171,20 @@ fun GameScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
         }
 
         StampCard(modifier = Modifier
             .fillMaxWidth()
-            .weight(1f)) {
+            .weight(1f), contentPadding = 10.dp) {
             Column(modifier = Modifier.fillMaxWidth()) {
                 Text("Emojis", style = MaterialTheme.typography.labelMedium, color = palette.inkSoft)
-                Spacer(Modifier.height(6.dp))
+                Spacer(Modifier.height(4.dp))
                 EmojiStrip(
                     emojis = emojis,
                     listState = emojiListState,
                     emptyHint = if (isDescriber) "Tap emojis below to describe your word" else "Waiting for emojis…",
-                    modifier = Modifier.height(72.dp)
+                    modifier = Modifier.height(64.dp)
                 )
 
                 if (guesses.isNotEmpty()) {
@@ -212,7 +212,7 @@ fun GameScreen(
             }
         }
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(8.dp))
 
         if (isDescriber && secretWord != null) {
             StampButton(
@@ -267,7 +267,7 @@ fun GameScreen(
             }
         }
 
-        Spacer(Modifier.height(12.dp))
+        Spacer(Modifier.height(8.dp))
 
         Scoreboard(
             players = game.players,

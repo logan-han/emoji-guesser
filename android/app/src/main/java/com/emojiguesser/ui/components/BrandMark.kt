@@ -21,18 +21,18 @@ fun BrandMark(modifier: Modifier = Modifier) {
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         StampCard(
             rotationDeg = -4f,
-            cornerRadius = 10.dp,
+            cornerRadius = 8.dp,
             stampOffset = 2.dp,
-            contentPadding = 6.dp,
-            modifier = Modifier.size(48.dp)
+            contentPadding = 4.dp,
+            modifier = Modifier.size(38.dp)
         ) {
             Text(
                 "🎯",
-                style = MaterialTheme.typography.headlineLarge
+                style = MaterialTheme.typography.titleLarge
             )
         }
 
@@ -43,7 +43,7 @@ fun BrandMark(modifier: Modifier = Modifier) {
                     append("Guesser")
                 }
             },
-            style = MaterialTheme.typography.displaySmall,
+            style = MaterialTheme.typography.headlineSmall,
             color = LocalConfetti.current.ink
         )
     }

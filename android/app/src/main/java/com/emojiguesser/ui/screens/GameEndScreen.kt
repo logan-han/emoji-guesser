@@ -60,55 +60,68 @@ fun GameEndScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(20.dp),
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text(
                 "Game over",
-                style = MaterialTheme.typography.displayMedium,
-                color = palette.ink
+                style = MaterialTheme.typography.displaySmall,
+                color = palette.ink,
+                fontWeight = FontWeight.SemiBold
             )
 
-            Spacer(Modifier.height(24.dp))
+            Spacer(Modifier.height(12.dp))
 
             winner?.let {
-                StampCard(modifier = Modifier.fillMaxWidth(), fill = Gold, rotationDeg = -2f) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
+                StampCard(modifier = Modifier.fillMaxWidth(), fill = Gold, rotationDeg = -1.5f, contentPadding = 12.dp) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth()
                     ) {
-                        Text("👑", fontSize = 56.sp)
+                        Text("👑", fontSize = 40.sp)
+                        Spacer(Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                "Winner",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = palette.ink
+                            )
+                            Text(
+                                it.name,
+                                style = MaterialTheme.typography.headlineSmall,
+                                color = palette.ink,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
                         Text(
-                            it.name,
-                            style = MaterialTheme.typography.displaySmall,
+                            "${it.score} pts",
+                            style = MaterialTheme.typography.titleLarge,
                             color = palette.ink,
                             fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            "${it.score} points",
-                            style = MaterialTheme.typography.titleLarge,
-                            color = palette.ink
                         )
                     }
                 }
             }
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(10.dp))
 
-            StampCard(modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)) {
-                LazyColumn {
+            StampCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentPadding = 12.dp
+            ) {
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     items(sortedPlayers.withIndex().toList()) { (index, player) ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(vertical = 8.dp),
+                                .padding(vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
                                 "${index + 1}.",
-                                style = MaterialTheme.typography.titleLarge,
+                                style = MaterialTheme.typography.titleMedium,
                                 color = when (index) {
                                     0 -> Gold
                                     1 -> palette.inkSoft
@@ -116,7 +129,7 @@ fun GameEndScreen(
                                     else -> palette.inkSoft
                                 },
                                 fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.width(36.dp)
+                                modifier = Modifier.width(28.dp)
                             )
                             Text(
                                 player.name,
@@ -126,7 +139,7 @@ fun GameEndScreen(
                             )
                             Text(
                                 "${player.score}",
-                                style = MaterialTheme.typography.titleLarge,
+                                style = MaterialTheme.typography.titleMedium,
                                 color = palette.ink,
                                 fontWeight = FontWeight.SemiBold
                             )
@@ -135,11 +148,11 @@ fun GameEndScreen(
                 }
             }
 
-            Spacer(Modifier.height(16.dp))
+            Spacer(Modifier.height(10.dp))
 
             Row(
                 modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 StampButton(
                     onClick = onLeaveGame,
@@ -184,4 +197,3 @@ fun GameEndScreen(
         }
     }
 }
-
