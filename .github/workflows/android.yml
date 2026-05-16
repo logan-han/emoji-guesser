@@ -28,11 +28,17 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+          cache: gradle
 
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
+      - name: Cache Gradle dependencies
+        uses: actions/cache@v4
         with:
-          gradle-home-cache-cleanup: true
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-deps-${{ runner.os }}-${{ hashFiles('android/**/*.gradle.kts', 'android/**/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-deps-${{ runner.os }}-
 
       - name: Make gradlew executable
         run: chmod +x gradlew
