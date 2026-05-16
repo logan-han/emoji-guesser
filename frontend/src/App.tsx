@@ -146,6 +146,7 @@ const App: React.FC = () => {
   const activeRoundTimerKeyRef = useRef<string | null>(null);
   const pendingTimeoutsRef = useRef<NodeJS.Timeout[]>([]); // Track pending timeouts for cleanup
   const reconnectAttemptsRef = useRef<number>(0);
+  const seenEventIdsRef = useRef<Set<string>>(new Set());
   const maxReconnectAttempts = 5;
 
   // Input validation helpers
@@ -551,6 +552,17 @@ const App: React.FC = () => {
   };
 
   const handleMessage = (data: WebSocketIncomingMessage) => {
+    if (data.eventId) {
+      if (seenEventIdsRef.current.has(data.eventId)) {
+        return;
+      }
+      seenEventIdsRef.current.add(data.eventId);
+      if (seenEventIdsRef.current.size > 200) {
+        const firstEventId = seenEventIdsRef.current.values().next().value;
+        seenEventIdsRef.current.delete(firstEventId);
+      }
+    }
+
     switch (data.action) {
       case 'connected':
         updateConnectionId(data.connectionId);

@@ -57,10 +57,11 @@ const sendMessageToClient = async (connectionId: string, payload: any, event: AP
 const broadcastToPlayers = async (playerIds: string[], payload: any, event: APIGatewayEvent, gameId?: string) => {
     // Send via both Realtime (for web clients) and direct WS (more reliable for mobile)
     // so a missed Realtime broadcast does not stall the lobby/waiting room.
+    const eventPayload = payload.eventId ? payload : { ...payload, eventId: randomUUID() };
     const realtimeGameId = gameId || payload.game?.gameId;
-    const tasks: Promise<unknown>[] = playerIds.map(id => sendMessageToClient(id, payload, event));
+    const tasks: Promise<unknown>[] = playerIds.map(id => sendMessageToClient(id, eventPayload, event));
     if (realtimeGameId) {
-        tasks.push(publishGameEvent(realtimeGameId, payload).catch(err => {
+        tasks.push(publishGameEvent(realtimeGameId, eventPayload).catch(err => {
             console.error(`Realtime publish failed for ${realtimeGameId}:`, err);
         }));
     }

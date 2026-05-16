@@ -20,6 +20,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     private val realtimeClient = SupabaseRealtimeClient()
     private val prefs = application.getSharedPreferences("emoji_guesser", Context.MODE_PRIVATE)
     private val app get() = getApplication<EmojiGuesserApp>()
+    private val seenEventIds = ArrayDeque<String>()
+    private val seenEventIdSet = mutableSetOf<String>()
 
     val sessionId: String = prefs.getString("session_id", null) ?: run {
         val newId = UUID.randomUUID().toString()
@@ -82,6 +84,14 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun handleServerMessage(message: ServerMessage) {
+        message.eventId?.let { eventId ->
+            if (!seenEventIdSet.add(eventId)) return
+            seenEventIds.addLast(eventId)
+            if (seenEventIds.size > 200) {
+                seenEventIdSet.remove(seenEventIds.removeFirst())
+            }
+        }
+
         when (message.action) {
             "connected" -> { /* no-op */ }
             "gameCreated", "playerJoined", "gameStarted", "playerNameUpdated",
@@ -182,8 +192,8 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         prefs.edit().putString("player_name", name).apply()
     }
 
-    fun createGame(timeLimit: Int = 120, isPublic: Boolean = false) {
-        webSocketClient.createGame(sessionId, _playerName.value, timeLimit, isPublic)
+    fun createGame(timeLimit: Int = 120, maxRounds: Int = 2, isPublic: Boolean = false) {
+        webSocketClient.createGame(sessionId, _playerName.value, timeLimit, maxRounds, isPublic)
         app.sounds.play(SoundEvent.ButtonClick)
         app.haptics.click()
     }
@@ -194,9 +204,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         app.haptics.click()
     }
 
-    fun startGame(timeLimit: Int = 120) {
+    fun startGame(timeLimit: Int = 120, maxRounds: Int = 2) {
         _currentGame.value?.let { game ->
-            webSocketClient.startGame(game.gameId, sessionId, timeLimit)
+            webSocketClient.startGame(game.gameId, sessionId, timeLimit, maxRounds)
         }
         app.sounds.play(SoundEvent.ButtonClick)
         app.haptics.click()

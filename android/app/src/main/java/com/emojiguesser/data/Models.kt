@@ -55,6 +55,7 @@ data class WebSocketMessage(
 @Serializable
 data class ServerMessage(
     val action: String,
+    val eventId: String? = null,
     val game: Game? = null,
     val games: List<Game>? = null,
     val connectionId: String? = null,

@@ -672,7 +672,10 @@ describe('WebSocket Handler Tests', () => {
 
       await default_handler(event as APIGatewayEvent, {} as any, {} as any);
 
-      expect(mockPublishGameEvent).toHaveBeenCalledWith('game-1', { action: 'newEmoji', emoji: '👍' });
+      expect(mockPublishGameEvent).toHaveBeenCalledWith(
+        'game-1',
+        expect.objectContaining({ action: 'newEmoji', emoji: '👍', eventId: expect.any(String) })
+      );
     });
 
     test('should handle submitEmoji failure', async () => {

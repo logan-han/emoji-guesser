@@ -11,10 +11,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -49,12 +50,10 @@ import com.emojiguesser.ui.components.EmojiStrip
 import com.emojiguesser.ui.components.HintTiles
 import com.emojiguesser.ui.components.Scoreboard
 import com.emojiguesser.ui.components.StampButton
-import com.emojiguesser.ui.components.StampButtonStyle
 import com.emojiguesser.ui.components.StampCard
 import com.emojiguesser.ui.theme.Gold
 import com.emojiguesser.ui.theme.LocalConfetti
 import com.emojiguesser.ui.theme.Sage
-import com.emojiguesser.ui.theme.Teal
 
 @Composable
 fun GameScreen(
@@ -92,14 +91,37 @@ fun GameScreen(
         StampCard(modifier = Modifier.fillMaxWidth(), contentPadding = 10.dp) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(palette.bg2)
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                        ) {
+                            Text(
+                                "Round ${game.currentRound ?: 1} / ${game.maxRounds ?: game.players.size}",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = palette.ink,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                        }
+                        RoundProgress(
+                            currentRound = game.currentRound ?: 1,
+                            maxRounds = game.maxRounds ?: game.players.size
+                        )
+                    }
+                    Spacer(Modifier.height(4.dp))
                     Text(
-                        "Round ${game.currentRound ?: 1} / ${game.maxRounds ?: game.players.size}",
-                        style = MaterialTheme.typography.titleMedium,
+                        if (isDescriber) "You're describing" else "${currentDescriber?.name ?: "Someone"} is describing",
+                        style = MaterialTheme.typography.bodyMedium,
                         color = palette.ink,
                         fontWeight = FontWeight.SemiBold
                     )
                     Text(
-                        "Describer: ${currentDescriber?.name ?: "Unknown"}",
+                        "Time ${formatTime(game.timeLimit)}",
                         style = MaterialTheme.typography.bodySmall,
                         color = palette.inkSoft
                     )
@@ -148,17 +170,6 @@ fun GameScreen(
             Spacer(Modifier.height(8.dp))
         }
 
-        if (!isDescriber && currentHint != null) {
-            StampCard(modifier = Modifier.fillMaxWidth(), fill = Teal) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
-                    Text("Hint", style = MaterialTheme.typography.labelMedium, color = palette.paper)
-                    Spacer(Modifier.height(8.dp))
-                    HintTiles(currentHint)
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-        }
-
         if (lastGuessedWord != null) {
             val won = lastGuesserName != null
             StampCard(modifier = Modifier.fillMaxWidth(), fill = if (won) Sage else Gold) {
@@ -176,35 +187,63 @@ fun GameScreen(
 
         StampCard(modifier = Modifier
             .fillMaxWidth()
-            .weight(1f), contentPadding = 10.dp) {
+            .weight(1f), contentPadding = 0.dp) {
             Column(modifier = Modifier.fillMaxWidth()) {
-                Text("Emojis", style = MaterialTheme.typography.labelMedium, color = palette.inkSoft)
-                Spacer(Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        if (isDescriber) "You are describing" else "${currentDescriber?.name ?: "Player"} is describing",
+                        style = MaterialTheme.typography.titleMedium,
+                        color = palette.ink,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        "${emojis.size} emoji played",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = palette.inkSoft
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(palette.hairline)
+                )
                 EmojiStrip(
                     emojis = emojis,
                     listState = emojiListState,
-                    emptyHint = if (isDescriber) "Tap emojis below to describe your word" else "Waiting for emojis…",
-                    modifier = Modifier.height(64.dp)
+                    emptyHint = if (isDescriber) "Tap emojis below to describe your word" else "Waiting for emojis...",
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(132.dp)
+                        .padding(horizontal = 8.dp)
                 )
 
-                if (guesses.isNotEmpty()) {
-                    Spacer(Modifier.height(8.dp))
+                if (currentHint != null || !isDescriber) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(1.dp)
                             .background(palette.hairline)
                     )
-                    Spacer(Modifier.height(8.dp))
-                    Text("Guesses", style = MaterialTheme.typography.labelMedium, color = palette.inkSoft)
-                    Spacer(Modifier.height(4.dp))
-                    LazyColumn(modifier = Modifier.weight(1f)) {
-                        items(guesses) { guess ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (!currentHint.isNullOrBlank()) {
+                            HintTiles(currentHint)
+                        } else {
                             Text(
-                                "${guess.guesserName ?: "Player"}: ${guess.text}",
+                                "Hint pending",
                                 style = MaterialTheme.typography.bodyMedium,
-                                color = palette.inkSoft,
-                                modifier = Modifier.padding(vertical = 2.dp)
+                                color = palette.inkSoft
                             )
                         }
                     }
@@ -274,5 +313,56 @@ fun GameScreen(
             currentDescriberSessionId = currentDescriber?.sessionId,
             modifier = Modifier.fillMaxWidth()
         )
+
+        if (guesses.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            StampCard(modifier = Modifier.fillMaxWidth(), contentPadding = 10.dp) {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Guesses",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = palette.ink,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text("Live", style = MaterialTheme.typography.labelSmall, color = palette.inkSoft)
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    LazyColumn(modifier = Modifier.height(88.dp)) {
+                        items(guesses) { guess ->
+                            Text(
+                                "${guess.guesserName ?: "Player"}: ${guess.text}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = palette.inkSoft,
+                                modifier = Modifier.padding(vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun formatTime(seconds: Int): String {
+    val minutes = seconds / 60
+    val remainder = seconds % 60
+    return "%d:%02d".format(minutes, remainder)
+}
+
+@Composable
+private fun RoundProgress(currentRound: Int, maxRounds: Int) {
+    val palette = LocalConfetti.current
+    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        repeat(maxRounds.coerceAtLeast(1)) { index ->
+            val round = index + 1
+            Box(
+                modifier = Modifier
+                    .size(if (round == currentRound) 9.dp else 7.dp)
+                    .clip(CircleShape)
+                    .background(if (round <= currentRound) palette.ink else palette.bg2)
+            )
+        }
     }
 }

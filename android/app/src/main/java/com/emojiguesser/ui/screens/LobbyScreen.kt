@@ -63,7 +63,7 @@ fun LobbyScreen(
     deepLinkGameId: String?,
     connectionState: ConnectionState,
     onPlayerNameChange: (String) -> Unit,
-    onCreateGame: (Int, Boolean) -> Unit,
+    onCreateGame: (Int, Int, Boolean) -> Unit,
     onJoinGame: (String) -> Unit,
     onListPublicGames: () -> Unit
 ) {
@@ -71,6 +71,7 @@ fun LobbyScreen(
     var joinGameId by remember { mutableStateOf(deepLinkGameId ?: "") }
     var isPublicGame by remember { mutableStateOf(true) }
     var timeLimit by remember { mutableIntStateOf(120) }
+    var maxRounds by remember { mutableIntStateOf(2) }
 
     LaunchedEffect(Unit) {
         while (true) {
@@ -164,8 +165,32 @@ fun LobbyScreen(
                     )
                 )
 
+                Spacer(Modifier.height(8.dp))
+
+                Text(
+                    "Total rounds",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = palette.inkSoft
+                )
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    (2..5).forEach { rounds ->
+                        RoundOptionChip(
+                            label = "$rounds",
+                            selected = maxRounds == rounds,
+                            onClick = { maxRounds = rounds },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                Spacer(Modifier.height(12.dp))
+
                 StampButton(
-                    onClick = { onCreateGame(timeLimit, isPublicGame) },
+                    onClick = { onCreateGame(timeLimit, maxRounds, isPublicGame) },
                     enabled = playerName.isNotBlank(),
                     modifier = Modifier.fillMaxWidth()
                 ) {
@@ -276,6 +301,33 @@ fun LobbyScreen(
         }
 
         Spacer(Modifier.height(12.dp))
+    }
+}
+
+@Composable
+private fun RoundOptionChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val palette = LocalConfetti.current
+    val bg = if (selected) palette.ink else palette.paper
+    val fg = if (selected) palette.paper else palette.ink
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(bg)
+            .clickable(onClick = onClick)
+            .padding(vertical = 9.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label,
+            color = fg,
+            fontWeight = FontWeight.SemiBold,
+            style = MaterialTheme.typography.bodyMedium
+        )
     }
 }
 

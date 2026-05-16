@@ -151,13 +151,14 @@ class WebSocketClient {
         webSocket?.send(jsonString)
     }
 
-    fun createGame(sessionId: String, playerName: String, timeLimit: Int = 120, isPublic: Boolean = false) {
+    fun createGame(sessionId: String, playerName: String, timeLimit: Int = 120, maxRounds: Int = 2, isPublic: Boolean = false) {
         this.sessionId = sessionId
         send(WebSocketMessage(
             action = "createGame",
             sessionId = sessionId,
             playerName = playerName,
             timeLimit = timeLimit,
+            maxRounds = maxRounds,
             isPublic = isPublic
         ))
     }
@@ -173,12 +174,13 @@ class WebSocketClient {
         ))
     }
 
-    fun startGame(gameId: String, sessionId: String, timeLimit: Int = 120) {
+    fun startGame(gameId: String, sessionId: String, timeLimit: Int = 120, maxRounds: Int = 2) {
         send(WebSocketMessage(
             action = "startGame",
             gameId = gameId,
             sessionId = sessionId,
-            timeLimit = timeLimit
+            timeLimit = timeLimit,
+            maxRounds = maxRounds
         ))
     }
 

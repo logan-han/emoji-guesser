@@ -1,6 +1,7 @@
 package com.emojiguesser.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -46,12 +47,13 @@ import com.emojiguesser.ui.theme.Sage
 fun WaitingRoomScreen(
     game: Game,
     isOwner: Boolean,
-    onStartGame: (Int) -> Unit,
+    onStartGame: (Int, Int) -> Unit,
     onLeaveGame: () -> Unit
 ) {
     val palette = LocalConfetti.current
     val clipboardManager = LocalClipboardManager.current
     var timeLimit by remember { mutableIntStateOf(game.timeLimit) }
+    var maxRounds by remember { mutableIntStateOf(game.maxRounds ?: 2) }
 
     Column(
         modifier = Modifier
@@ -162,6 +164,35 @@ fun WaitingRoomScreen(
                             inactiveTrackColor = palette.bg2
                         )
                     )
+                    Spacer(Modifier.height(8.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "Total rounds",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = palette.inkSoft,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            "$maxRounds",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = palette.ink,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        (2..5).forEach { rounds ->
+                            RoundOptionChip(
+                                label = "$rounds",
+                                selected = maxRounds == rounds,
+                                onClick = { maxRounds = rounds },
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
                 }
             }
             Spacer(Modifier.height(10.dp))
@@ -180,25 +211,53 @@ fun WaitingRoomScreen(
             }
             if (isOwner) {
                 StampButton(
-                    onClick = { onStartGame(timeLimit) },
+                    onClick = { onStartGame(timeLimit, maxRounds) },
                     enabled = game.players.size >= 2,
                     modifier = Modifier.weight(1f)
                 ) {
                     Text(if (game.players.size >= 2) "Start" else "Need 2+")
                 }
             } else {
-                Box(
-                    modifier = Modifier.weight(1f),
-                    contentAlignment = Alignment.Center
+                StampButton(
+                    onClick = {},
+                    enabled = false,
+                    style = StampButtonStyle.Secondary,
+                    modifier = Modifier.weight(1f)
                 ) {
                     Text(
-                        "Waiting for host…",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = palette.inkSoft
+                        "Waiting for host",
+                        maxLines = 1
                     )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun RoundOptionChip(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val palette = LocalConfetti.current
+    val bg = if (selected) palette.ink else palette.paper
+    val fg = if (selected) palette.paper else palette.ink
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(bg)
+            .clickable(onClick = onClick)
+            .padding(vertical = 9.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            label,
+            color = fg,
+            fontWeight = FontWeight.SemiBold,
+            style = MaterialTheme.typography.bodyMedium
+        )
     }
 }
 
