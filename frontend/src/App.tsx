@@ -683,6 +683,9 @@ const App: React.FC = () => {
         playSound('emojiSelect');
         setEmojis(prev => [...prev, data.emoji]);
         break;
+      case 'emojisCleared':
+        setEmojis([]);
+        break;
       case 'newGuess':
         playSound('newGuess');
         setMessages(prev => [...prev, { text: data.text, type: 'guess', timestamp: Date.now() }]);
@@ -1428,7 +1431,7 @@ const App: React.FC = () => {
                     )) : <span className="quickbar-empty">Played emoji will appear here.</span>}
                   </div>
                   <div className="describer-actions">
-                    <button onClick={() => setEmojis([])} className="btn btn-ghost btn-sm">Clear all</button>
+                    <button onClick={() => { setEmojis([]); if (game) sendMessage({ action: 'clearEmojis', gameId: game.gameId }); }} className="btn btn-ghost btn-sm">Clear all</button>
                   </div>
                   <div className="emoji-picker-panel">
                     <EmojiPicker

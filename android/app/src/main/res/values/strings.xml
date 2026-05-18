@@ -39,7 +39,7 @@
     <string name="waiting_players_capacity">%1$d / 8</string>
     <string name="waiting_host">Host</string>
     <string name="waiting_ready">Ready</string>
-    <string name="waiting_joining">Joining…</string>
+    <string name="waiting_joining">Waiting for the host to start the game</string>
     <string name="waiting_empty_slot">Waiting for player…</string>
     <string name="waiting_need_more_players">Need at least 2 players to start</string>
     <string name="waiting_start_game">Start game</string>

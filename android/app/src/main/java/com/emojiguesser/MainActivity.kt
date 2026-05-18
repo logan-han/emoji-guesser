@@ -94,6 +94,7 @@ class MainActivity : ComponentActivity() {
                         onStartGame = viewModel::startGame,
                         onChooseWord = viewModel::chooseWord,
                         onSubmitEmoji = viewModel::submitEmoji,
+                        onRemoveEmojiAt = viewModel::removeEmojiAt,
                         onSubmitGuess = viewModel::submitGuess,
                         onListPublicGames = viewModel::listPublicGames,
                         onRestartGame = viewModel::restartGame,

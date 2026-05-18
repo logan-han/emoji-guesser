@@ -78,6 +78,10 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun updateGame(game: Game) {
+        val current = _currentGame.value
+        if (current?.gameState == "ENDED" && game.gameState != "ENDED" && current.gameId == game.gameId) {
+            return
+        }
         _currentGame.value = game
         webSocketClient.currentGameId = game.gameId
         realtimeClient.subscribe(game.gameId)
@@ -137,6 +141,9 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
                     _emojis.value = _emojis.value + emoji
                     app.sounds.play(SoundEvent.EmojiSelect)
                 }
+            }
+            "emojisCleared" -> {
+                _emojis.value = emptyList()
             }
             "newGuess" -> {
                 message.text?.let { text ->
@@ -224,6 +231,13 @@ class GameViewModel(application: Application) : AndroidViewModel(application) {
         _currentGame.value?.let { game ->
             webSocketClient.submitEmoji(game.gameId, emoji)
         }
+        app.haptics.click()
+    }
+
+    fun removeEmojiAt(index: Int) {
+        val current = _emojis.value
+        if (index !in current.indices) return
+        _emojis.value = current.toMutableList().also { it.removeAt(index) }
         app.haptics.click()
     }
 

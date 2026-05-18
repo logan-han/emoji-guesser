@@ -1061,6 +1061,22 @@ async function submitEmoji(connectionId: string, gameId: string, emoji: string, 
     }
 }
 
+async function clearEmojis(connectionId: string, gameId: string, event: APIGatewayEvent) {
+    const getParams = { TableName: GAMES_TABLE, Key: { gameId } };
+
+    try {
+        const result = await db.send(new GetCommand(getParams));
+        if (!result.Item) { return; }
+
+        const game = result.Item;
+        const allIds = [...game.players.map((p: any) => p.connectionId), ...(game.spectators || []).map((s: any) => s.connectionId)];
+        await broadcastToPlayers(allIds, { action: 'emojisCleared' }, event, gameId);
+
+    } catch (error) {
+        console.error(`Failed to clear emojis for game ${gameId}:`, error);
+    }
+}
+
 async function heartbeat(connectionId: string, event: APIGatewayEvent, sessionId?: string, gameId?: string) {
     // Update last seen timestamp for player in all games and handle hint updates
     try {
@@ -1607,6 +1623,13 @@ export const default_handler: APIGatewayProxyHandler = async (event) => {
                 await submitEmoji(connectionId, gameId, emoji, apiGatewayEvent);
             } else {
                 await sendMessageToClient(connectionId, { action: 'error', message: 'gameId and emoji are required for submitEmoji action.' }, apiGatewayEvent);
+            }
+            break;
+        case 'clearEmojis':
+            if (gameId) {
+                await clearEmojis(connectionId, gameId, apiGatewayEvent);
+            } else {
+                await sendMessageToClient(connectionId, { action: 'error', message: 'gameId is required for clearEmojis action.' }, apiGatewayEvent);
             }
             break;
         case 'timeUp':

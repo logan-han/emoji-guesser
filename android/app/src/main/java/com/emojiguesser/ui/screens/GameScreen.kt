@@ -2,9 +2,12 @@ package com.emojiguesser.ui.screens
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -80,6 +83,7 @@ fun GameScreen(
     currentDescriber: Player?,
     onChooseWord: (String) -> Unit,
     onSubmitEmoji: (String) -> Unit,
+    onRemoveEmojiAt: (Int) -> Unit,
     onSubmitGuess: (String) -> Unit,
     onLeaveGame: () -> Unit
 ) {
@@ -119,6 +123,7 @@ fun GameScreen(
                 emojis = emojis,
                 guesses = guesses,
                 players = game.players,
+                onRemoveEmojiAt = onRemoveEmojiAt,
                 modifier = Modifier.weight(1f)
             )
             Spacer(Modifier.height(8.dp))
@@ -255,6 +260,7 @@ private fun DescriberBody(
     emojis: List<String>,
     guesses: List<GuessEntry>,
     players: List<Player>,
+    onRemoveEmojiAt: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val palette = LocalConfetti.current
@@ -265,7 +271,7 @@ private fun DescriberBody(
                 Text(stringResource(R.string.game_tap_to_remove), style = MaterialTheme.typography.labelMedium, color = palette.inkSoft)
             }
             Spacer(Modifier.height(10.dp))
-            EmojiTileRow(emojis = emojis, tileSize = 38)
+            EmojiTileRow(emojis = emojis, tileSize = 38, onTap = onRemoveEmojiAt)
             Spacer(Modifier.height(12.dp))
             Box(Modifier.fillMaxWidth().height(1.dp).background(palette.hairline))
             Spacer(Modifier.height(10.dp))
@@ -315,30 +321,27 @@ private fun GuesserBody(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun EmojiTileRow(emojis: List<String>, tileSize: Int) {
+private fun EmojiTileRow(emojis: List<String>, tileSize: Int, onTap: ((Int) -> Unit)? = null) {
     val palette = LocalConfetti.current
-    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
-        emojis.take(7).forEach { emoji ->
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        emojis.forEachIndexed { index, emoji ->
             Box(
                 modifier = Modifier
                     .size(tileSize.dp)
                     .clip(RoundedCornerShape(10.dp))
                     .background(palette.bg)
-                    .border(1.dp, palette.hairlineStrong, RoundedCornerShape(10.dp)),
+                    .border(1.dp, palette.hairlineStrong, RoundedCornerShape(10.dp))
+                    .then(if (onTap != null) Modifier.clickable { onTap(index) } else Modifier),
                 contentAlignment = Alignment.Center
             ) {
                 Text(emoji, fontSize = (tileSize - 14).sp)
             }
-        }
-        Box(
-            modifier = Modifier
-                .size(tileSize.dp)
-                .clip(RoundedCornerShape(10.dp))
-                .border(1.dp, palette.hairlineStrong, RoundedCornerShape(10.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            Text("+", style = MaterialTheme.typography.titleLarge, color = palette.inkSoft)
         }
     }
 }
