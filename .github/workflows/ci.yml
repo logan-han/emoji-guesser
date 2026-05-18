@@ -241,4 +241,3 @@ jobs:
           releaseFiles: android/app/build/outputs/bundle/release/app-release.aab
           track: internal
           status: completed
-          whatsNewDirectory: android/play-store/whatsnew
