@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Subtle drop shadow under face -->
+    <path
+        android:pathData="M54,57m-30,0a30,30 0 1 1,60 0a30,30 0 1 1,-60 0"
+        android:fillColor="#000000"
+        android:fillAlpha="0.12"/>
+
+    <!-- Yellow face with vertical gradient -->
+    <path android:pathData="M54,54m-30,0a30,30 0 1 1,60 0a30,30 0 1 1,-60 0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:type="linear"
+                android:startX="54" android:startY="24"
+                android:endX="54" android:endY="84"
+                android:startColor="#FFE34D"
+                android:endColor="#FFA800"/>
+        </aapt:attr>
+    </path>
+
+    <!-- Inner rim for depth -->
+    <path
+        android:pathData="M54,54m-30,0a30,30 0 1 1,60 0a30,30 0 1 1,-60 0M54,54m-27.5,0a27.5,27.5 0 1 0,55 0a27.5,27.5 0 1 0,-55 0Z"
+        android:fillColor="#C77700"
+        android:fillAlpha="0.18"
+        android:fillType="evenOdd"/>
+
+    <!-- Top highlight giving spherical feel -->
+    <path
+        android:pathData="M54,38m-19,0a19,11 0 1 1,38 0a19,11 0 1 1,-38 0"
+        android:fillColor="#FFFFFF"
+        android:fillAlpha="0.35"/>
+
+    <!-- Left eye -->
+    <path
+        android:fillColor="#2D1810"
+        android:pathData="M44,47m-3,0a3,4.5 0 1 1,6 0a3,4.5 0 1 1,-6 0"/>
+
+    <!-- Right eye -->
+    <path
+        android:fillColor="#2D1810"
+        android:pathData="M64,47m-3,0a3,4.5 0 1 1,6 0a3,4.5 0 1 1,-6 0"/>
+
+    <!-- Eye highlights -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M45,45m-0.9,0a0.9,1.2 0 1 1,1.8 0a0.9,1.2 0 1 1,-1.8 0"/>
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M65,45m-0.9,0a0.9,1.2 0 1 1,1.8 0a0.9,1.2 0 1 1,-1.8 0"/>
+
+    <!-- Cheek blush -->
+    <path
+        android:fillColor="#FF6B9D"
+        android:fillAlpha="0.45"
+        android:pathData="M34,60m-3.5,0a3.5,2.2 0 1 1,7 0a3.5,2.2 0 1 1,-7 0"/>
+    <path
+        android:fillColor="#FF6B9D"
+        android:fillAlpha="0.45"
+        android:pathData="M74,60m-3.5,0a3.5,2.2 0 1 1,7 0a3.5,2.2 0 1 1,-7 0"/>
+
+    <!-- Smile -->
+    <path
+        android:pathData="M41,61 Q54,76 67,61"
+        android:strokeColor="#2D1810"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:fillColor="#00000000"/>
+</vector>

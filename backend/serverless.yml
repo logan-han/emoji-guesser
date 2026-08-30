@@ -1,0 +1,58 @@
+
+service: emoji-guesser-backend
+frameworkVersion: '4'
+
+build:
+  esbuild: false
+
+provider:
+  name: aws
+  runtime: nodejs24.x
+  stage: dev
+  region: ap-southeast-4
+  websocketsApiName: emoji-guesser-ws
+  websocketsApiRouteSelectionExpression: $request.body.action
+  environment:
+    SUPABASE_URL: ${env:SUPABASE_URL}
+    SUPABASE_SERVICE_ROLE_KEY: ${env:SUPABASE_SERVICE_ROLE_KEY}
+    SUPABASE_GAMES_TABLE: ${env:SUPABASE_GAMES_TABLE, 'games'}
+  iam:
+    role:
+      statements:
+        - Effect: "Allow"
+          Action:
+            - "execute-api:ManageConnections"
+          Resource:
+            - "arn:aws:execute-api:${aws:region}:${aws:accountId}:*/*"
+
+plugins:
+  - serverless-webpack
+
+package:
+  individually: true
+
+functions:
+  connect:
+    handler: src/websockets.connect
+    events:
+      - websocket:
+          route: $connect
+  disconnect:
+    handler: src/websockets.disconnect
+    events:
+      - websocket:
+          route: $disconnect
+  default:
+    handler: src/websockets.default_handler
+    events:
+      - websocket:
+          route: $default
+  cleanupGames:
+    handler: src/websockets.cleanupGames
+    events:
+      - schedule: rate(1 hour)
+
+custom:
+  webpack:
+    webpackConfig: ./webpack.config.js
+    includeModules: true

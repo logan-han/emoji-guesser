@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Emoji Guesser - Privacy Policy</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  body { font-family: system-ui, -apple-system, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 16px; line-height: 1.6; color: #1d1a17; background: #f4ecdf; }
+  h1, h2 { font-family: Georgia, serif; }
+  h1 { font-size: 32px; }
+  h2 { font-size: 20px; margin-top: 28px; }
+  a { color: #c44a2e; }
+  .meta { color: #6e645a; font-size: 14px; }
+</style>
+</head>
+<body>
+<h1>Emoji Guesser Privacy Policy</h1>
+<p class="meta">Last updated: 13 May 2026</p>
+
+<p>Emoji Guesser is a real-time multiplayer game. We have designed it to collect as little information as possible.</p>
+
+<h2>What we collect</h2>
+<ul>
+  <li><strong>Player display name.</strong> Entered by you when joining a game. Used only during the live game and shown to other players in the same lobby.</li>
+  <li><strong>Anonymous session identifier.</strong> A randomly generated UUID stored on your device so you can reconnect to an in-progress game. It is not linked to any account or personal identifier.</li>
+</ul>
+
+<h2>What we do not collect</h2>
+<ul>
+  <li>No account is required. We do not collect email, phone number, address, or any other personal identifier.</li>
+  <li>No advertising identifiers, no third-party analytics, no behavioural tracking.</li>
+  <li>No payment information. Emoji Guesser is free with no in-app purchases.</li>
+</ul>
+
+<h2>How data is transmitted</h2>
+<p>All in-game messages are sent over secure WebSocket connections (WSS) to our backend. Display names and emoji selections are broadcast to other players in the same lobby in real time so the game can function. Once a game ends, the live state is discarded; we do not retain message history.</p>
+
+<h2>Data retention</h2>
+<p>Active game state is held in our database only while the game is in progress and is automatically cleaned up shortly after the game ends. The session UUID lives on your device and can be cleared by clearing app data or uninstalling.</p>
+
+<h2>Third parties</h2>
+<p>Real-time game synchronisation is provided by Supabase. Backend functions run on AWS Lambda behind API Gateway. We share only the data necessary to run a game session with these providers and they do not use it for their own purposes.</p>
+
+<h2>Children</h2>
+<p>Emoji Guesser does not knowingly collect data from children under 13. The app contains no chat freeform and no purchases.</p>
+
+<h2>Contact</h2>
+<p>Questions? Email <a href="mailto:logan@han.life">logan@han.life</a>.</p>
+
+<h2>Changes</h2>
+<p>If this policy changes we will update the date above and post the new version at this URL.</p>
+</body>
+</html>
