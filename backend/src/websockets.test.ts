@@ -43,7 +43,7 @@ jest.mock('@aws-sdk/client-apigatewaymanagementapi', () => ({
 }));
 
 import { APIGatewayEvent } from 'aws-lambda';
-import { connect, disconnect, default_handler, listPublicGames } from './websockets';
+import { connect, disconnect, default_handler, listPublicGames, cleanupGames } from './websockets';
 
 jest.useFakeTimers();
 
@@ -1663,6 +1663,239 @@ describe('WebSocket Handler Tests', () => {
       expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
         Data: expect.stringContaining('error')
       }));
+    });
+  });
+
+  describe('cleanupGames Handler', () => {
+    const hoursAgo = (h: number) => new Date(Date.now() - h * 60 * 60 * 1000).toISOString();
+    const minutesAgo = (m: number) => new Date(Date.now() - m * 60 * 1000).toISOString();
+
+    const activePlayer = () => ({ connectionId: 'c-1', name: 'P1', lastSeen: minutesAgo(1) });
+    const stalePlayer = () => ({ connectionId: 'c-1', name: 'P1', lastSeen: minutesAgo(30) });
+
+    test('reports back when the scan returns no items', async () => {
+      mockDbSend.mockResolvedValueOnce({});
+
+      const result = await cleanupGames(mockEvent as APIGatewayEvent, {} as any, {} as any);
+
+      expect(result).toEqual({ statusCode: 200, body: 'No games to process.' });
+      expect(mockDeleteCommand).not.toHaveBeenCalled();
+    });
+
+    test('deletes games that have no players left', async () => {
+      mockDbSend.mockResolvedValueOnce({
+        Items: [{ gameId: 'empty', players: [], gameState: 'WAITING', updatedAt: minutesAgo(1) }],
+      });
+
+      const result = await cleanupGames(mockEvent as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockDeleteCommand).toHaveBeenCalledWith(
+        expect.objectContaining({ Key: { gameId: 'empty' } })
+      );
+      expect(result).toEqual({ statusCode: 200, body: 'Cleanup complete.' });
+    });
+
+    test.each(['WAITING', 'ENDED'])('deletes stale %s games older than two hours', async (gameState) => {
+      mockDbSend.mockResolvedValueOnce({
+        Items: [{ gameId: 'stale', players: [activePlayer()], gameState, updatedAt: hoursAgo(3) }],
+      });
+
+      await cleanupGames(mockEvent as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockDeleteCommand).toHaveBeenCalledWith(
+        expect.objectContaining({ Key: { gameId: 'stale' } })
+      );
+    });
+
+    test('keeps recent WAITING games that still have players', async () => {
+      mockDbSend.mockResolvedValueOnce({
+        Items: [{ gameId: 'fresh', players: [activePlayer()], gameState: 'WAITING', updatedAt: minutesAgo(1) }],
+      });
+
+      await cleanupGames(mockEvent as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockDeleteCommand).not.toHaveBeenCalled();
+    });
+
+    test('deletes in-progress games where no player was seen in the last five minutes', async () => {
+      mockDbSend.mockResolvedValueOnce({
+        Items: [{ gameId: 'abandoned', players: [stalePlayer()], gameState: 'IN_PROGRESS', updatedAt: minutesAgo(10) }],
+      });
+
+      await cleanupGames(mockEvent as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockDeleteCommand).toHaveBeenCalledWith(
+        expect.objectContaining({ Key: { gameId: 'abandoned' } })
+      );
+    });
+
+    test('keeps in-progress games while at least one player is still active', async () => {
+      mockDbSend.mockResolvedValueOnce({
+        Items: [{
+          gameId: 'live',
+          players: [stalePlayer(), activePlayer()],
+          gameState: 'IN_PROGRESS',
+          updatedAt: minutesAgo(10),
+        }],
+      });
+
+      await cleanupGames(mockEvent as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockDeleteCommand).not.toHaveBeenCalled();
+    });
+
+    test('returns 500 when the scan fails', async () => {
+      mockDbSend.mockRejectedValueOnce(new Error('Scan failed'));
+
+      const result = await cleanupGames(mockEvent as APIGatewayEvent, {} as any, {} as any);
+
+      expect(result).toEqual({ statusCode: 500, body: 'Error during cleanup.' });
+    });
+  });
+
+  describe('clearEmojis Action', () => {
+    test('broadcasts emojisCleared to players and spectators', async () => {
+      mockDbSend.mockResolvedValueOnce({
+        Item: {
+          gameId: 'game-1',
+          players: [{ connectionId: 'c-1' }, { connectionId: 'c-2' }],
+          spectators: [{ connectionId: 's-1' }],
+        },
+      });
+
+      const event = { ...mockEvent, body: JSON.stringify({ action: 'clearEmojis', gameId: 'game-1' }) };
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('emojisCleared'),
+      }));
+      expect(mockPostToConnectionCommand).toHaveBeenCalledTimes(3);
+    });
+
+    test('rejects the action when gameId is missing', async () => {
+      const event = { ...mockEvent, body: JSON.stringify({ action: 'clearEmojis' }) };
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('gameId is required for clearEmojis action.'),
+      }));
+    });
+
+    test('stays quiet when the game no longer exists', async () => {
+      mockDbSend.mockResolvedValueOnce({});
+
+      const event = { ...mockEvent, body: JSON.stringify({ action: 'clearEmojis', gameId: 'missing' }) };
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnectionCommand).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('updateHint Action', () => {
+    const describingGame = (overrides: Record<string, any> = {}) => ({
+      gameId: 'game-1',
+      turnState: 'DESCRIBING',
+      secretWord: 'apple',
+      turnStartTime: new Date(Date.now() - 5000).toISOString(),
+      timeLimit: 60,
+      currentDescriberIndex: 0,
+      players: [{ connectionId: 'describer' }, { connectionId: 'guesser' }],
+      spectators: [{ connectionId: 'spectator' }],
+      ...overrides,
+    });
+
+    test('rejects the action when gameId is missing', async () => {
+      const event = { ...mockEvent, body: JSON.stringify({ action: 'updateHint' }) };
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('gameId is required for updateHint action.'),
+      }));
+    });
+
+    test('ignores games that are not currently being described', async () => {
+      mockDbSend.mockResolvedValueOnce({ Item: describingGame({ turnState: 'CHOOSING' }) });
+
+      const event = { ...mockEvent, body: JSON.stringify({ action: 'updateHint', gameId: 'game-1' }) };
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockUpdateCommand).not.toHaveBeenCalled();
+      expect(mockPostToConnectionCommand).not.toHaveBeenCalled();
+    });
+
+    test('sends the refreshed hint to guessers and spectators but not the describer', async () => {
+      mockDbSend.mockResolvedValueOnce({ Item: describingGame() });
+
+      const event = { ...mockEvent, body: JSON.stringify({ action: 'updateHint', gameId: 'game-1' }) };
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockUpdateCommand).toHaveBeenCalledWith(expect.objectContaining({
+        UpdateExpression: 'set currentHint = :h',
+      }));
+      const targets = mockPostToConnectionCommand.mock.calls.map((call) => call[0].ConnectionId);
+      expect(targets).toEqual(expect.arrayContaining(['guesser', 'spectator']));
+      expect(targets).not.toContain('describer');
+    });
+
+    test('ends the round instead of hinting once the time limit has passed', async () => {
+      mockDbSend.mockResolvedValueOnce({
+        Item: describingGame({ turnStartTime: new Date(Date.now() - 61000).toISOString() }),
+      });
+
+      const event = { ...mockEvent, body: JSON.stringify({ action: 'updateHint', gameId: 'game-1' }) };
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockUpdateCommand).not.toHaveBeenCalledWith(expect.objectContaining({
+        UpdateExpression: 'set currentHint = :h',
+      }));
+    });
+  });
+
+  describe('Player Name Sanitisation', () => {
+    const gameWithPlayer = {
+      gameId: 'game-1',
+      players: [{ connectionId: 'test-connection-123', name: 'Old', sessionId: 'sess-1' }],
+    };
+
+    test('strips HTML tags from a submitted name', async () => {
+      mockDbSend.mockResolvedValueOnce({ Item: JSON.parse(JSON.stringify(gameWithPlayer)) });
+
+      const event = {
+        ...mockEvent,
+        body: JSON.stringify({ action: 'updatePlayerName', gameId: 'game-1', name: '<script>x</script>Bob' }),
+      };
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockUpdateCommand).toHaveBeenCalledWith(expect.objectContaining({
+        ExpressionAttributeValues: { ':p': [expect.objectContaining({ name: 'xBob' })] },
+      }));
+    });
+
+    test('truncates names longer than twenty characters', async () => {
+      mockDbSend.mockResolvedValueOnce({ Item: JSON.parse(JSON.stringify(gameWithPlayer)) });
+
+      const event = {
+        ...mockEvent,
+        body: JSON.stringify({ action: 'updatePlayerName', gameId: 'game-1', name: 'A'.repeat(40) }),
+      };
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockUpdateCommand).toHaveBeenCalledWith(expect.objectContaining({
+        ExpressionAttributeValues: { ':p': [expect.objectContaining({ name: 'A'.repeat(20) })] },
+      }));
+    });
+
+    test('rejects a name that is only markup', async () => {
+      const event = {
+        ...mockEvent,
+        body: JSON.stringify({ action: 'updatePlayerName', gameId: 'game-1', name: '<b></b>' }),
+      };
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('Player name is required.'),
+      }));
+      expect(mockUpdateCommand).not.toHaveBeenCalled();
     });
   });
 });
