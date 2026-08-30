@@ -1,5 +1,6 @@
 import java.util.Properties
 import java.io.FileInputStream
+import java.io.File
 
 plugins {
     id("com.android.application")
@@ -36,6 +37,15 @@ val supabaseAnonKey = System.getenv("SUPABASE_ANON_KEY")
     ?: localProperties.getProperty("SUPABASE_ANON_KEY")
     ?: ""
 
+// Resolve the release keystore, or null when there isn't one on disk. CI passes an
+// absolute KEYSTORE_FILE; keystore.properties uses a path relative to the app module.
+val releaseKeystore = (System.getenv("KEYSTORE_FILE")
+    ?: keystoreProperties.getProperty("storeFile"))
+    ?.let { path ->
+        val candidate = File(path)
+        (if (candidate.isAbsolute) candidate else rootProject.file("app/$path")).takeIf(File::exists)
+    }
+
 android {
     namespace = "com.emojiguesser"
     compileSdk = 37
@@ -59,12 +69,16 @@ android {
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
     }
 
-    signingConfigs {
-        create("release") {
-            storeFile = file(System.getenv("KEYSTORE_FILE") ?: keystoreProperties.getProperty("storeFile") ?: "keystore.jks")
-            storePassword = System.getenv("KEYSTORE_PASSWORD") ?: keystoreProperties.getProperty("storePassword") ?: ""
-            keyAlias = System.getenv("KEY_ALIAS") ?: keystoreProperties.getProperty("keyAlias") ?: ""
-            keyPassword = System.getenv("KEY_PASSWORD") ?: keystoreProperties.getProperty("keyPassword") ?: ""
+    // Only wire up release signing when a keystore is actually present, so that
+    // `assemble` works on a bare checkout (CodeQL autobuild, local clones).
+    if (releaseKeystore != null) {
+        signingConfigs {
+            create("release") {
+                storeFile = releaseKeystore
+                storePassword = System.getenv("KEYSTORE_PASSWORD") ?: keystoreProperties.getProperty("storePassword") ?: ""
+                keyAlias = System.getenv("KEY_ALIAS") ?: keystoreProperties.getProperty("keyAlias") ?: ""
+                keyPassword = System.getenv("KEY_PASSWORD") ?: keystoreProperties.getProperty("keyPassword") ?: ""
+            }
         }
     }
 
@@ -76,7 +90,7 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = signingConfigs.findByName("release")
         }
         debug {
             applicationIdSuffix = ".debug"
