@@ -81,6 +81,32 @@ const PLAYER_NAME_NOUNS = [
   'Sprout',
 ];
 
+// Repeat until stable so nested markup such as `<<b>b>` cannot survive a single pass
+const stripHtmlTags = (value: string): string => {
+  let previous: string;
+  let current = value;
+  do {
+    previous = current;
+    current = current.replace(/<[^>]*>/g, '');
+  } while (current !== previous);
+  return current;
+};
+
+// Session IDs authenticate reconnects, so they must come from a CSPRNG
+const generateSessionId = (): string => {
+  if (typeof crypto === 'undefined') {
+    throw new Error('Secure random number generation is unavailable');
+  }
+  if (crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6] & 0x0f) | 0x40;
+  bytes[8] = (bytes[8] & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+};
+
 const generateRandomPlayerName = (): string => {
   const adjective = PLAYER_NAME_ADJECTIVES[Math.floor(Math.random() * PLAYER_NAME_ADJECTIVES.length)];
   const noun = PLAYER_NAME_NOUNS[Math.floor(Math.random() * PLAYER_NAME_NOUNS.length)];
@@ -152,12 +178,12 @@ const App: React.FC = () => {
   // Input validation helpers
   const sanitizePlayerName = (name: string): string => {
     // Remove HTML tags, limit length, trim whitespace
-    return name.replace(/<[^>]*>/g, '').trim().slice(0, 20);
+    return stripHtmlTags(name).trim().slice(0, 20);
   };
 
   const sanitizeGuess = (guess: string): string => {
     // Remove HTML tags, limit length, normalize
-    return guess.replace(/<[^>]*>/g, '').trim().toLowerCase().slice(0, 50);
+    return stripHtmlTags(guess).trim().toLowerCase().slice(0, 50);
   };
 
   const isValidPlayerName = (name: string): boolean => {
@@ -198,10 +224,7 @@ const App: React.FC = () => {
       sessionIdRef.current = savedSessionId;
       setSessionId(savedSessionId);
     } else {
-      // Use crypto.randomUUID() for secure session ID generation
-      const newSessionId = typeof crypto !== 'undefined' && crypto.randomUUID
-        ? crypto.randomUUID()
-        : `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const newSessionId = generateSessionId();
       setSessionId(newSessionId);
       sessionIdRef.current = newSessionId;
       sessionStorage.setItem('emoji-guesser-session', newSessionId);

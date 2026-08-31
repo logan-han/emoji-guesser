@@ -12,8 +12,19 @@ const activeTimeouts = new Map<string, NodeJS.Timeout>();
 
 // --- Helper Functions ---
 
+// Repeat until stable so nested markup such as `<<b>b>` cannot survive a single pass
+function stripHtmlTags(value: string): string {
+    let previous: string;
+    let current = value;
+    do {
+        previous = current;
+        current = current.replace(/<[^>]*>/g, '');
+    } while (current !== previous);
+    return current;
+}
+
 function sanitizePlayerName(name?: string): string {
-    return (name || '').replace(/<[^>]*>/g, '').trim().slice(0, 20);
+    return stripHtmlTags(name || '').trim().slice(0, 20);
 }
 
 function isValidPlayerName(name?: string): boolean {

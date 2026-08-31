@@ -13,6 +13,8 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v6
 
@@ -168,6 +170,8 @@ jobs:
   deploy-android:
     needs: [test, deploy-backend]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     defaults:
       run:
