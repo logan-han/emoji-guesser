@@ -21,3 +21,13 @@ Object.defineProperty(global, 'IntersectionObserver', {
   configurable: true,
   value: MockIntersectionObserver,
 });
+
+// jsdom 16 (react-scripts) ships no Web Crypto; the app requires it for session IDs
+if (typeof globalThis.crypto === 'undefined') {
+  const { webcrypto } = require('crypto');
+  Object.defineProperty(globalThis, 'crypto', {
+    writable: true,
+    configurable: true,
+    value: webcrypto,
+  });
+}
