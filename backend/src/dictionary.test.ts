@@ -1,38 +1,41 @@
+import type { MockInstance } from 'vitest';
+import { generate } from 'random-words';
 import { getRandomWords, generateHint } from './dictionary';
 
 // Mock the random-words package
-jest.mock('random-words', () => ({
-  generate: jest.fn()
+vi.mock('random-words', () => ({
+  generate: vi.fn()
 }));
 
-const mockNounOutputQueue: string[][] = [];
-
-// Mock compromise with controllable noun output so tests can exercise filtering and retries
-jest.mock('compromise', () => {
-  return jest.fn((text: string) => ({
+// dictionary.ts loads compromise with require, which vi.mock cannot intercept, so seed Node's
+// module cache with a controllable stand-in before the hoisted imports run.
+const mockNounOutputQueue = vi.hoisted(() => {
+  const queue: string[][] = [];
+  const nlp = (text: string) => ({
     nouns: () => ({
       out: (format: string) => {
         if (format === 'array') {
-          if (mockNounOutputQueue.length > 0) {
-            return mockNounOutputQueue.shift();
+          if (queue.length > 0) {
+            return queue.shift();
           }
           return text.split(/\s+/).filter(Boolean);
         }
         return [];
       }
     })
-  }));
+  });
+  const id = require.resolve('compromise');
+  require.cache[id] = { id, filename: id, loaded: true, exports: nlp } as unknown as NodeModule;
+  return queue;
 });
 
-import { generate } from 'random-words';
-
 describe('Dictionary Functions', () => {
-  let consoleLogSpy: jest.SpyInstance;
-  let consoleErrorSpy: jest.SpyInstance;
+  let consoleLogSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
 
   beforeEach(() => {
-    consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
-    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+    consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -42,12 +45,12 @@ describe('Dictionary Functions', () => {
 
   describe('getRandomWords', () => {
     beforeEach(() => {
-      jest.clearAllMocks();
+      vi.clearAllMocks();
       mockNounOutputQueue.length = 0;
     });
 
     test('should return 3 random words', async () => {
-      const mockGenerate = generate as jest.MockedFunction<typeof generate>;
+      const mockGenerate = vi.mocked(generate);
       mockGenerate.mockReturnValue(['cat', 'dog', 'house'] as any);
 
       const words = await getRandomWords();
@@ -57,7 +60,7 @@ describe('Dictionary Functions', () => {
     });
 
     test('should use fallback words when generate fails', async () => {
-      const mockGenerate = generate as jest.MockedFunction<typeof generate>;
+      const mockGenerate = vi.mocked(generate);
       mockGenerate.mockImplementation(() => {
         throw new Error('Package failed');
       });
@@ -69,7 +72,7 @@ describe('Dictionary Functions', () => {
     });
 
     test('should filter invalid nouns and retry until it has 3 unique words', async () => {
-      const mockGenerate = generate as jest.MockedFunction<typeof generate>;
+      const mockGenerate = vi.mocked(generate);
       mockGenerate
         .mockReturnValueOnce(['cat', 'cat', 'verylongwordname'] as any)
         .mockReturnValueOnce(['space', 'dog', 'bird'] as any);
@@ -195,7 +198,7 @@ describe('Dictionary Functions', () => {
 
   describe('getRandomWords edge cases', () => {
     test('should handle generate returning single word as string', async () => {
-      const mockGenerate = generate as jest.MockedFunction<typeof generate>;
+      const mockGenerate = vi.mocked(generate);
       mockGenerate
         .mockReturnValueOnce('singleword' as any)
         .mockReturnValueOnce(['cat', 'dog'] as any);
@@ -205,7 +208,7 @@ describe('Dictionary Functions', () => {
     });
 
     test('should return unique words', async () => {
-      const mockGenerate = generate as jest.MockedFunction<typeof generate>;
+      const mockGenerate = vi.mocked(generate);
       mockGenerate.mockReturnValue(['cat', 'dog', 'bird'] as any);
 
       const words = await getRandomWords();

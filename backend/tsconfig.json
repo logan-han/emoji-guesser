@@ -1,7 +1,9 @@
 
 {
   "compilerOptions": {
-    "lib": ["es2020"],
+    "lib": [
+      "es2020"
+    ],
     "target": "es2020",
     "module": "commonjs",
     "esModuleInterop": true,
@@ -9,8 +11,16 @@
     "strict": true,
     "skipLibCheck": true,
     "sourceMap": true,
-    "outDir": "dist"
+    "outDir": "dist",
+    "types": [
+      "node",
+      "vitest/globals"
+    ]
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["node_modules"]
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }

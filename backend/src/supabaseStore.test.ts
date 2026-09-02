@@ -1,14 +1,14 @@
 // Mock @supabase/supabase-js before importing
-const mockFrom = jest.fn();
-const mockChannel = jest.fn();
-const mockRemoveChannel = jest.fn();
-const mockCreateClient = jest.fn((..._args: any[]) => ({
+const mockFrom = vi.fn();
+const mockChannel = vi.fn();
+const mockRemoveChannel = vi.fn();
+const mockCreateClient = vi.fn((..._args: any[]) => ({
   from: mockFrom,
   channel: mockChannel,
   removeChannel: mockRemoveChannel,
 }));
 
-jest.mock('@supabase/supabase-js', () => ({
+vi.mock('@supabase/supabase-js', () => ({
   createClient: (url: string, key: string, opts: any) => mockCreateClient(url, key, opts),
 }));
 
@@ -22,11 +22,11 @@ const setupEnv = () => {
 
 const buildQueryBuilder = (response: { data?: any; error?: any }) => {
   const builder: any = {
-    select: jest.fn().mockReturnThis(),
-    eq: jest.fn().mockReturnThis(),
-    upsert: jest.fn().mockResolvedValue(response),
-    delete: jest.fn().mockReturnThis(),
-    maybeSingle: jest.fn().mockResolvedValue(response),
+    select: vi.fn().mockReturnThis(),
+    eq: vi.fn().mockReturnThis(),
+    upsert: vi.fn().mockResolvedValue(response),
+    delete: vi.fn().mockReturnThis(),
+    maybeSingle: vi.fn().mockResolvedValue(response),
     then: undefined,
   };
   // Final `await` on the chain should resolve to the response
@@ -34,9 +34,9 @@ const buildQueryBuilder = (response: { data?: any; error?: any }) => {
   return builder;
 };
 
-const loadModule = () => {
-  jest.resetModules();
-  return require('./supabaseStore');
+const loadModule = async () => {
+  vi.resetModules();
+  return import('./supabaseStore');
 };
 
 describe('supabaseStore', () => {
@@ -56,7 +56,7 @@ describe('supabaseStore', () => {
   describe('client initialisation', () => {
     test('throws when SUPABASE_URL is missing', async () => {
       delete process.env.SUPABASE_URL;
-      const { gameStore, GetCommand } = loadModule();
+      const { gameStore, GetCommand } = await loadModule();
       await expect(
         gameStore.send(new GetCommand({ Key: { gameId: 'g1' } }))
       ).rejects.toThrow('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be configured.');
@@ -64,14 +64,14 @@ describe('supabaseStore', () => {
 
     test('throws when SUPABASE_SERVICE_ROLE_KEY is missing', async () => {
       delete process.env.SUPABASE_SERVICE_ROLE_KEY;
-      const { gameStore, GetCommand } = loadModule();
+      const { gameStore, GetCommand } = await loadModule();
       await expect(
         gameStore.send(new GetCommand({ Key: { gameId: 'g1' } }))
       ).rejects.toThrow('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be configured.');
     });
 
     test('creates a single supabase client and reuses it across calls', async () => {
-      const { gameStore, GetCommand } = loadModule();
+      const { gameStore, GetCommand } = await loadModule();
       mockFrom.mockReturnValue(buildQueryBuilder({ data: null, error: null }));
 
       await gameStore.send(new GetCommand({ Key: { gameId: 'g1' } }));
@@ -89,7 +89,7 @@ describe('supabaseStore', () => {
 
     test('reads SUPABASE_GAMES_TABLE env at module load (defaults to games)', async () => {
       delete process.env.SUPABASE_GAMES_TABLE;
-      const { gameStore, GetCommand } = loadModule();
+      const { gameStore, GetCommand } = await loadModule();
       mockFrom.mockReturnValue(buildQueryBuilder({ data: null, error: null }));
 
       await gameStore.send(new GetCommand({ Key: { gameId: 'g1' } }));
@@ -100,7 +100,7 @@ describe('supabaseStore', () => {
 
   describe('GetCommand', () => {
     test('returns Item when row exists', async () => {
-      const { gameStore, GetCommand } = loadModule();
+      const { gameStore, GetCommand } = await loadModule();
       const game = { gameId: 'g1', ownerId: 'p1', updatedAt: '2024-01-01' };
       const qb = buildQueryBuilder({ data: { data: game }, error: null });
       mockFrom.mockReturnValue(qb);
@@ -115,7 +115,7 @@ describe('supabaseStore', () => {
     });
 
     test('returns empty object when row is absent', async () => {
-      const { gameStore, GetCommand } = loadModule();
+      const { gameStore, GetCommand } = await loadModule();
       mockFrom.mockReturnValue(buildQueryBuilder({ data: null, error: null }));
 
       const result = await gameStore.send(new GetCommand({ Key: { gameId: 'missing' } }));
@@ -124,7 +124,7 @@ describe('supabaseStore', () => {
     });
 
     test('throws when supabase returns an error', async () => {
-      const { gameStore, GetCommand } = loadModule();
+      const { gameStore, GetCommand } = await loadModule();
       mockFrom.mockReturnValue(
         buildQueryBuilder({ data: null, error: new Error('db down') })
       );
@@ -137,7 +137,7 @@ describe('supabaseStore', () => {
 
   describe('PutCommand', () => {
     test('upserts row with mapped columns and computed updatedAt', async () => {
-      const { gameStore, PutCommand } = loadModule();
+      const { gameStore, PutCommand } = await loadModule();
       const qb = buildQueryBuilder({ error: null });
       mockFrom.mockReturnValue(qb);
 
@@ -170,7 +170,7 @@ describe('supabaseStore', () => {
     });
 
     test('preserves existing updatedAt when provided', async () => {
-      const { gameStore, PutCommand } = loadModule();
+      const { gameStore, PutCommand } = await loadModule();
       const qb = buildQueryBuilder({ error: null });
       mockFrom.mockReturnValue(qb);
 
@@ -191,7 +191,7 @@ describe('supabaseStore', () => {
     });
 
     test('coerces missing isPublic to false and ttl to null', async () => {
-      const { gameStore, PutCommand } = loadModule();
+      const { gameStore, PutCommand } = await loadModule();
       const qb = buildQueryBuilder({ error: null });
       mockFrom.mockReturnValue(qb);
 
@@ -207,7 +207,7 @@ describe('supabaseStore', () => {
     });
 
     test('throws when upsert reports an error', async () => {
-      const { gameStore, PutCommand } = loadModule();
+      const { gameStore, PutCommand } = await loadModule();
       mockFrom.mockReturnValue(buildQueryBuilder({ error: new Error('write failed') }));
 
       await expect(
@@ -218,7 +218,7 @@ describe('supabaseStore', () => {
 
   describe('UpdateCommand', () => {
     test('returns empty object when target game is missing', async () => {
-      const { gameStore, UpdateCommand } = loadModule();
+      const { gameStore, UpdateCommand } = await loadModule();
       mockFrom.mockReturnValue(buildQueryBuilder({ data: null, error: null }));
 
       const result = await gameStore.send(
@@ -233,7 +233,7 @@ describe('supabaseStore', () => {
     });
 
     test('applies a SET expression and upserts the new row', async () => {
-      const { gameStore, UpdateCommand } = loadModule();
+      const { gameStore, UpdateCommand } = await loadModule();
       const existing = {
         gameId: 'g1',
         gameState: 'WAITING',
@@ -261,7 +261,7 @@ describe('supabaseStore', () => {
     });
 
     test('returns Attributes when ReturnValues=ALL_NEW', async () => {
-      const { gameStore, UpdateCommand } = loadModule();
+      const { gameStore, UpdateCommand } = await loadModule();
       const existing = { gameId: 'g1', gameState: 'WAITING' };
       mockFrom
         .mockReturnValueOnce(buildQueryBuilder({ data: { data: existing }, error: null }))
@@ -281,7 +281,7 @@ describe('supabaseStore', () => {
     });
 
     test('supports REMOVE alongside SET', async () => {
-      const { gameStore, UpdateCommand } = loadModule();
+      const { gameStore, UpdateCommand } = await loadModule();
       const existing = {
         gameId: 'g1',
         gameState: 'IN_PROGRESS',
@@ -308,7 +308,7 @@ describe('supabaseStore', () => {
     });
 
     test('resolves ExpressionAttributeNames placeholders', async () => {
-      const { gameStore, UpdateCommand } = loadModule();
+      const { gameStore, UpdateCommand } = await loadModule();
       const existing = { gameId: 'g1', state: 'OLD' };
       const upsertBuilder = buildQueryBuilder({ error: null });
       mockFrom
@@ -329,7 +329,7 @@ describe('supabaseStore', () => {
     });
 
     test('skips update when condition expression does not match', async () => {
-      const { gameStore, UpdateCommand } = loadModule();
+      const { gameStore, UpdateCommand } = await loadModule();
       const existing = { gameId: 'g1', gameState: 'WAITING' };
       mockFrom.mockReturnValueOnce(buildQueryBuilder({ data: { data: existing }, error: null }));
 
@@ -347,7 +347,7 @@ describe('supabaseStore', () => {
     });
 
     test('applies update when condition expression matches', async () => {
-      const { gameStore, UpdateCommand } = loadModule();
+      const { gameStore, UpdateCommand } = await loadModule();
       const existing = { gameId: 'g1', gameState: 'WAITING' };
       const upsertBuilder = buildQueryBuilder({ error: null });
       mockFrom
@@ -368,7 +368,7 @@ describe('supabaseStore', () => {
     });
 
     test('rejects unsupported condition expressions', async () => {
-      const { gameStore, UpdateCommand } = loadModule();
+      const { gameStore, UpdateCommand } = await loadModule();
       const existing = { gameId: 'g1', gameState: 'WAITING' };
       mockFrom.mockReturnValueOnce(buildQueryBuilder({ data: { data: existing }, error: null }));
 
@@ -385,7 +385,7 @@ describe('supabaseStore', () => {
     });
 
     test('throws when upsert errors during update', async () => {
-      const { gameStore, UpdateCommand } = loadModule();
+      const { gameStore, UpdateCommand } = await loadModule();
       const existing = { gameId: 'g1', gameState: 'WAITING' };
       mockFrom
         .mockReturnValueOnce(buildQueryBuilder({ data: { data: existing }, error: null }))
@@ -405,7 +405,7 @@ describe('supabaseStore', () => {
 
   describe('DeleteCommand', () => {
     test('deletes the row by game_id', async () => {
-      const { gameStore, DeleteCommand } = loadModule();
+      const { gameStore, DeleteCommand } = await loadModule();
       const qb = buildQueryBuilder({ error: null });
       mockFrom.mockReturnValue(qb);
 
@@ -417,7 +417,7 @@ describe('supabaseStore', () => {
     });
 
     test('throws when delete reports an error', async () => {
-      const { gameStore, DeleteCommand } = loadModule();
+      const { gameStore, DeleteCommand } = await loadModule();
       mockFrom.mockReturnValue(buildQueryBuilder({ error: new Error('boom') }));
 
       await expect(
@@ -428,7 +428,7 @@ describe('supabaseStore', () => {
 
   describe('ScanCommand', () => {
     test('returns rows mapped from data column', async () => {
-      const { gameStore, ScanCommand } = loadModule();
+      const { gameStore, ScanCommand } = await loadModule();
       const rows = [{ data: { gameId: 'g1' } }, { data: { gameId: 'g2' } }];
       mockFrom.mockReturnValue(buildQueryBuilder({ data: rows, error: null }));
 
@@ -438,7 +438,7 @@ describe('supabaseStore', () => {
     });
 
     test('filters out rows with empty data', async () => {
-      const { gameStore, ScanCommand } = loadModule();
+      const { gameStore, ScanCommand } = await loadModule();
       const rows = [{ data: { gameId: 'g1' } }, { data: null }];
       mockFrom.mockReturnValue(buildQueryBuilder({ data: rows, error: null }));
 
@@ -448,7 +448,7 @@ describe('supabaseStore', () => {
     });
 
     test('applies the public-waiting filter when expression matches', async () => {
-      const { gameStore, ScanCommand } = loadModule();
+      const { gameStore, ScanCommand } = await loadModule();
       const qb = buildQueryBuilder({ data: [], error: null });
       mockFrom.mockReturnValue(qb);
 
@@ -464,7 +464,7 @@ describe('supabaseStore', () => {
     });
 
     test('returns empty list when supabase returns no data', async () => {
-      const { gameStore, ScanCommand } = loadModule();
+      const { gameStore, ScanCommand } = await loadModule();
       mockFrom.mockReturnValue(buildQueryBuilder({ data: null, error: null }));
 
       const result = await gameStore.send(new ScanCommand({}));
@@ -473,7 +473,7 @@ describe('supabaseStore', () => {
     });
 
     test('throws when scan reports an error', async () => {
-      const { gameStore, ScanCommand } = loadModule();
+      const { gameStore, ScanCommand } = await loadModule();
       mockFrom.mockReturnValue(buildQueryBuilder({ data: null, error: new Error('scan fail') }));
 
       await expect(gameStore.send(new ScanCommand({}))).rejects.toThrow('scan fail');
@@ -482,7 +482,7 @@ describe('supabaseStore', () => {
 
   describe('Unsupported commands', () => {
     test('throws for unknown command instances', async () => {
-      const { gameStore } = loadModule();
+      const { gameStore } = await loadModule();
       await expect(gameStore.send({} as any)).rejects.toThrow('Unsupported Supabase store command.');
     });
   });
@@ -490,14 +490,14 @@ describe('supabaseStore', () => {
   describe('publishGameEvent', () => {
     const buildChannel = () => {
       const channel: any = {
-        subscribe: jest.fn(),
-        send: jest.fn().mockResolvedValue('ok'),
+        subscribe: vi.fn(),
+        send: vi.fn().mockResolvedValue('ok'),
       };
       return channel;
     };
 
     test('subscribes, broadcasts, and removes the channel', async () => {
-      const { publishGameEvent } = loadModule();
+      const { publishGameEvent } = await loadModule();
       const channel = buildChannel();
       channel.subscribe.mockImplementation((cb: any) => {
         cb('SUBSCRIBED');
@@ -517,7 +517,7 @@ describe('supabaseStore', () => {
     });
 
     test('rejects when channel reports CHANNEL_ERROR', async () => {
-      const { publishGameEvent } = loadModule();
+      const { publishGameEvent } = await loadModule();
       const channel = buildChannel();
       channel.subscribe.mockImplementation((cb: any) => {
         cb('CHANNEL_ERROR');
@@ -531,7 +531,7 @@ describe('supabaseStore', () => {
     });
 
     test('throws when broadcast returns a non-ok response and still removes channel', async () => {
-      const { publishGameEvent } = loadModule();
+      const { publishGameEvent } = await loadModule();
       const channel = buildChannel();
       channel.subscribe.mockImplementation((cb: any) => {
         cb('SUBSCRIBED');
@@ -547,19 +547,19 @@ describe('supabaseStore', () => {
     });
 
     test('rejects on subscription timeout', async () => {
-      jest.useFakeTimers();
+      vi.useFakeTimers();
       try {
-        const { publishGameEvent } = loadModule();
+        const { publishGameEvent } = await loadModule();
         const channel = buildChannel();
         // Never invoke the callback so the timeout fires
         channel.subscribe.mockImplementation(() => channel);
         mockChannel.mockReturnValue(channel);
 
         const promise = publishGameEvent('g1', {});
-        jest.advanceTimersByTime(5000);
+        vi.advanceTimersByTime(5000);
         await expect(promise).rejects.toThrow('Timed out subscribing to game:g1');
       } finally {
-        jest.useRealTimers();
+        vi.useRealTimers();
       }
     });
   });

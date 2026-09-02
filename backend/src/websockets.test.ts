@@ -1,33 +1,45 @@
-// Set environment variables for testing before importing modules
-process.env.SUPABASE_GAMES_TABLE = 'test-games-table';
+import { APIGatewayEvent } from 'aws-lambda';
+import { connect, disconnect, default_handler, listPublicGames, cleanupGames } from './websockets';
+
+// Runs before the hoisted imports so websockets.ts reads the test table name at load.
+const {
+  asCommand,
+  mockDbSend,
+  mockPublishGameEvent,
+  mockGetCommand,
+  mockPutCommand,
+  mockUpdateCommand,
+  mockDeleteCommand,
+  mockScanCommand,
+  mockApgSend,
+  mockPostToConnectionCommand,
+} = vi.hoisted(() => {
+  process.env.SUPABASE_GAMES_TABLE = 'test-games-table';
+  // Command mocks are called with new, so they need a real function rather than an arrow.
+  const asCommand = function (input: any) { return { input }; };
+  return {
+    asCommand,
+    // Supabase store mocks
+    mockDbSend: vi.fn().mockResolvedValue({}),
+    mockPublishGameEvent: vi.fn().mockResolvedValue(undefined),
+    mockGetCommand: vi.fn(asCommand),
+    mockPutCommand: vi.fn(asCommand),
+    mockUpdateCommand: vi.fn(asCommand),
+    mockDeleteCommand: vi.fn(asCommand),
+    mockScanCommand: vi.fn(asCommand),
+    // ApiGateway mocks
+    mockApgSend: vi.fn().mockResolvedValue({}),
+    mockPostToConnectionCommand: vi.fn(asCommand),
+  };
+});
 
 // Mock dictionary
-jest.mock('./dictionary', () => ({
-  getRandomWords: jest.fn().mockResolvedValue(['apple', 'banana', 'orange']),
-  generateHint: jest.fn().mockReturnValue('_ _ _ _ _'),
+vi.mock('./dictionary', () => ({
+  getRandomWords: vi.fn().mockResolvedValue(['apple', 'banana', 'orange']),
+  generateHint: vi.fn().mockReturnValue('_ _ _ _ _'),
 }));
 
-// Supabase store mocks
-const mockDbSend = jest.fn().mockResolvedValue({});
-const mockPublishGameEvent = jest.fn().mockResolvedValue(undefined);
-const mockGetCommand = jest.fn().mockImplementation((input) => ({ input }));
-const mockPutCommand = jest.fn().mockImplementation((input) => ({ input }));
-const mockUpdateCommand = jest.fn().mockImplementation((input) => ({ input }));
-const mockDeleteCommand = jest.fn().mockImplementation((input) => ({ input }));
-const mockScanCommand = jest.fn().mockImplementation((input) => ({ input }));
-
-// ApiGateway mocks
-const mockApgSend = jest.fn().mockResolvedValue({});
-const mockPostToConnectionCommand = jest.fn().mockImplementation((input) => ({ input }));
-
-const expectRealtimeAction = (action: string) => {
-  expect(mockPublishGameEvent).toHaveBeenCalledWith(
-    expect.any(String),
-    expect.objectContaining({ action })
-  );
-};
-
-jest.mock('./supabaseStore', () => ({
+vi.mock('./supabaseStore', () => ({
   gameStore: { send: mockDbSend },
   publishGameEvent: mockPublishGameEvent,
   GetCommand: mockGetCommand,
@@ -37,15 +49,19 @@ jest.mock('./supabaseStore', () => ({
   ScanCommand: mockScanCommand,
 }));
 
-jest.mock('@aws-sdk/client-apigatewaymanagementapi', () => ({
-  ApiGatewayManagementApiClient: jest.fn().mockImplementation(() => ({ send: mockApgSend })),
+vi.mock('@aws-sdk/client-apigatewaymanagementapi', () => ({
+  ApiGatewayManagementApiClient: vi.fn(function () { return { send: mockApgSend }; }),
   PostToConnectionCommand: mockPostToConnectionCommand,
 }));
 
-import { APIGatewayEvent } from 'aws-lambda';
-import { connect, disconnect, default_handler, listPublicGames, cleanupGames } from './websockets';
+const expectRealtimeAction = (action: string) => {
+  expect(mockPublishGameEvent).toHaveBeenCalledWith(
+    expect.any(String),
+    expect.objectContaining({ action })
+  );
+};
 
-jest.useFakeTimers();
+vi.useFakeTimers();
 
 describe('WebSocket Handler Tests', () => {
   const mockEvent: Partial<APIGatewayEvent> = {
@@ -58,17 +74,17 @@ describe('WebSocket Handler Tests', () => {
   };
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
     process.env.SUPABASE_GAMES_TABLE = 'test-games-table';
     mockDbSend.mockResolvedValue({});
     mockPublishGameEvent.mockResolvedValue(undefined);
     mockApgSend.mockResolvedValue({});
-    mockGetCommand.mockImplementation((input) => ({ input }));
-    mockPutCommand.mockImplementation((input) => ({ input }));
-    mockUpdateCommand.mockImplementation((input) => ({ input }));
-    mockDeleteCommand.mockImplementation((input) => ({ input }));
-    mockScanCommand.mockImplementation((input) => ({ input }));
-    mockPostToConnectionCommand.mockImplementation((input) => ({ input }));
+    mockGetCommand.mockImplementation(asCommand);
+    mockPutCommand.mockImplementation(asCommand);
+    mockUpdateCommand.mockImplementation(asCommand);
+    mockDeleteCommand.mockImplementation(asCommand);
+    mockScanCommand.mockImplementation(asCommand);
+    mockPostToConnectionCommand.mockImplementation(asCommand);
   });
 
   describe('Connect Handler', () => {
@@ -998,7 +1014,7 @@ describe('WebSocket Handler Tests', () => {
 
   describe('Coverage Specific Tests', () => {
     test('should handle stale connection on sendMessageToClient', async () => {
-        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         mockApgSend.mockRejectedValueOnce({ statusCode: 410 });
 
         const event = {
@@ -1014,7 +1030,7 @@ describe('WebSocket Handler Tests', () => {
       });
 
     test('should handle AWS SDK v3 stale connection errors', async () => {
-        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+        const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
         mockApgSend.mockRejectedValueOnce({ $metadata: { httpStatusCode: 410 } });
 
         const event = {
@@ -1620,7 +1636,7 @@ describe('WebSocket Handler Tests', () => {
     });
 
     test('should handle disconnect error gracefully', async () => {
-      const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+      const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
       mockDbSend.mockRejectedValueOnce(new Error('DB Error'));
 
       const result = await disconnect(mockEvent as APIGatewayEvent, {} as any, {} as any);
