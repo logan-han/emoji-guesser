@@ -11,8 +11,8 @@ import {
   fixtures,
 } from './testUtils';
 
-jest.mock('./sounds', () => ({
-  playSound: jest.fn(),
+vi.mock('./sounds', () => ({
+  playSound: vi.fn(),
 }));
 
 installBrowserMocks();
@@ -48,7 +48,7 @@ describe('App - lifecycle and connection', () => {
   });
 
   test('logs and surfaces WebSocket onerror', async () => {
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
+    const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     await renderAndConnect(App);
     const ws = mockWebSocketInstances[0];
 
@@ -73,11 +73,11 @@ describe('App - lifecycle and connection', () => {
 
     Object.defineProperty(window, 'sessionStorage', {
       value: {
-        getItem: jest.fn((key: string) => sessionData[key] || null),
-        setItem: jest.fn(),
-        removeItem: jest.fn(),
-        clear: jest.fn(),
-        key: jest.fn(),
+        getItem: vi.fn((key: string) => sessionData[key] || null),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+        clear: vi.fn(),
+        key: vi.fn(),
         length: 0,
       },
       writable: true,
@@ -85,11 +85,11 @@ describe('App - lifecycle and connection', () => {
 
     Object.defineProperty(window, 'localStorage', {
       value: {
-        getItem: jest.fn((key: string) => localData[key] || null),
-        setItem: jest.fn(),
-        removeItem: jest.fn(),
-        clear: jest.fn(),
-        key: jest.fn(),
+        getItem: vi.fn((key: string) => localData[key] || null),
+        setItem: vi.fn(),
+        removeItem: vi.fn(),
+        clear: vi.fn(),
+        key: vi.fn(),
         length: 0,
       },
       writable: true,
@@ -101,7 +101,7 @@ describe('App - lifecycle and connection', () => {
   });
 
   test('accepts the "connected" server message without crashing', async () => {
-    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     await renderAndConnect(App);
 
     sendServerMessage({ action: 'connected', connectionId: 'new-conn-123' });
@@ -110,7 +110,7 @@ describe('App - lifecycle and connection', () => {
   });
 
   test('logs unknown action types instead of throwing', async () => {
-    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
     await renderAndConnect(App);
 
     sendServerMessage({ action: 'unknownAction', data: 'some data' });

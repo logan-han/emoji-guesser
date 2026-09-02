@@ -10,21 +10,21 @@ import {
   fixtures,
 } from './testUtils';
 
-jest.mock('./sounds', () => ({
-  playSound: jest.fn(),
+vi.mock('./sounds', () => ({
+  playSound: vi.fn(),
 }));
 
 // react-scripts sets `resetMocks: true`, which strips implementations from
-// jest.fn() before every test, so the Supabase stub is built from plain
+// vi.fn() before every test, so the Supabase stub is built from plain
 // functions and records into this object instead.
-// `var` avoids the temporal dead zone: jest hoists the factory above this file.
+// `var` avoids the temporal dead zone: vitest hoists the factory above this file.
 var mockRealtime: {
   handlers: Record<string, (payload: any) => void>;
   subscribed: number;
   removed: number;
 };
 
-jest.mock('./supabase', () => {
+vi.mock('./supabase', () => {
   const channel: any = {
     on: (_type: string, filter: { event: string }, handler: (payload: any) => void) => {
       mockRealtime.handlers[filter.event] = handler;

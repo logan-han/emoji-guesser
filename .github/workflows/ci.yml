@@ -28,7 +28,7 @@ jobs:
         working-directory: ./frontend
 
       - name: Run Frontend Tests
-        run: yarn test --coverage --watchAll=false
+        run: yarn test:coverage
         working-directory: ./frontend
 
       - name: Upload coverage reports to Codecov
@@ -47,7 +47,7 @@ jobs:
         working-directory: ./backend
 
       - name: Run Backend Tests
-        run: yarn test --coverage --watchAll=false
+        run: yarn test:coverage
         working-directory: ./backend
 
       - name: Upload backend coverage reports to Codecov
@@ -146,9 +146,9 @@ jobs:
 
       - name: Build Frontend
         env:
-          REACT_APP_WS_URL: ${{ needs.deploy-backend.outputs.websocket-url }}
-          REACT_APP_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          REACT_APP_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+          VITE_WS_URL: ${{ needs.deploy-backend.outputs.websocket-url }}
+          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
         run: yarn build
         working-directory: ./frontend
 

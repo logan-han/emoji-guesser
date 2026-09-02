@@ -3,14 +3,14 @@ import { render, screen, waitFor } from '@testing-library/react';
 import { act } from 'react';
 
 export const mockWebSocketInstances: any[] = [];
-export const mockSend = jest.fn();
-export const mockAlert = jest.fn();
+export const mockSend = vi.fn();
+export const mockAlert = vi.fn();
 
 const createStorageMock = () => ({
-  getItem: jest.fn(),
-  setItem: jest.fn(),
-  clear: jest.fn(),
-  removeItem: jest.fn(),
+  getItem: vi.fn(),
+  setItem: vi.fn(),
+  clear: vi.fn(),
+  removeItem: vi.fn(),
 });
 
 export const localStorageMock = createStorageMock();
@@ -24,7 +24,7 @@ export class MockWebSocket {
   readyState = (global as any).WebSocket?.OPEN ?? 1;
   url = '';
   send = mockSend;
-  close = jest.fn();
+  close = vi.fn();
 
   constructor(url: string) {
     this.url = url;
@@ -45,11 +45,11 @@ export const installBrowserMocks = () => {
 };
 
 export const resetTestMocks = () => {
-  jest.clearAllMocks();
+  vi.clearAllMocks();
   mockWebSocketInstances.length = 0;
   localStorageMock.getItem.mockReturnValue(null);
   sessionStorageMock.getItem.mockReturnValue(null);
-  window.history.pushState = jest.fn();
+  window.history.pushState = vi.fn();
   mockAlert.mockClear();
 };
 

@@ -1,23 +1,26 @@
+import type { Mock } from 'vitest';
 import { playSound, soundEffects } from './sounds';
 
 describe('Sound Effects', () => {
-  let mockPlay: jest.Mock;
+  let mockPlay: Mock;
   let mockAudio: any;
 
   beforeEach(() => {
-    mockPlay = jest.fn().mockResolvedValue(undefined);
+    mockPlay = vi.fn().mockResolvedValue(undefined);
     mockAudio = {
       play: mockPlay,
-      pause: jest.fn(),
+      pause: vi.fn(),
       currentTime: 0,
       duration: 0,
       volume: 1,
       muted: false,
-      addEventListener: jest.fn(),
-      removeEventListener: jest.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
     };
 
-    global.Audio = jest.fn().mockImplementation(() => mockAudio);
+    global.Audio = vi.fn(function () {
+      return mockAudio;
+    }) as unknown as typeof Audio;
   });
 
   describe('soundEffects', () => {
@@ -53,7 +56,7 @@ describe('Sound Effects', () => {
     });
 
     test('swallows autoplay rejections and logs a single warning', async () => {
-      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+      const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
       mockPlay.mockRejectedValue(new Error('Autoplay blocked'));
 
       playSound('gameStart');
@@ -69,7 +72,7 @@ describe('Sound Effects', () => {
     });
 
     test('successful play does not log', async () => {
-      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+      const consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
       playSound('buttonClick');
       await Promise.resolve();

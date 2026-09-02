@@ -11,8 +11,8 @@ import {
   fixtures,
 } from './testUtils';
 
-jest.mock('./sounds', () => ({
-  playSound: jest.fn(),
+vi.mock('./sounds', () => ({
+  playSound: vi.fn(),
 }));
 
 installBrowserMocks();

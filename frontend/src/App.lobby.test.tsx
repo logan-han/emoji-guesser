@@ -11,8 +11,8 @@ import {
   fixtures,
 } from './testUtils';
 
-jest.mock('./sounds', () => ({
-  playSound: jest.fn(),
+vi.mock('./sounds', () => ({
+  playSound: vi.fn(),
 }));
 
 installBrowserMocks();
@@ -99,7 +99,7 @@ describe('App - lobby flow', () => {
 
   test('copies the invite link to clipboard and shows confirmation', async () => {
     Object.assign(navigator, {
-      clipboard: { writeText: jest.fn().mockResolvedValue(undefined) },
+      clipboard: { writeText: vi.fn().mockResolvedValue(undefined) },
     });
 
     await renderAndConnect(App);
@@ -116,9 +116,9 @@ describe('App - lobby flow', () => {
   });
 
   test('logs error when clipboard copy fails', async () => {
-    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     Object.assign(navigator, {
-      clipboard: { writeText: jest.fn().mockRejectedValue(new Error('Copy failed')) },
+      clipboard: { writeText: vi.fn().mockRejectedValue(new Error('Copy failed')) },
     });
 
     await renderAndConnect(App);

@@ -38,9 +38,9 @@ cd ../frontend
 yarn install
 
 # Create production environment file
-echo "REACT_APP_WS_URL=${WS_URL}" > .env.production
-echo "REACT_APP_SUPABASE_URL=${SUPABASE_URL}" >> .env.production
-echo "REACT_APP_SUPABASE_ANON_KEY=${SUPABASE_PUBLISHABLE_KEY}" >> .env.production
+echo "VITE_WS_URL=${WS_URL}" > .env.production
+echo "VITE_SUPABASE_URL=${SUPABASE_URL}" >> .env.production
+echo "VITE_SUPABASE_ANON_KEY=${SUPABASE_PUBLISHABLE_KEY}" >> .env.production
 
 # Build frontend
 yarn build

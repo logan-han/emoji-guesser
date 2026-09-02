@@ -13,8 +13,8 @@ import {
   fixtures,
 } from './testUtils';
 
-jest.mock('./sounds', () => ({
-  playSound: jest.fn(),
+vi.mock('./sounds', () => ({
+  playSound: vi.fn(),
 }));
 
 installBrowserMocks();
@@ -114,7 +114,7 @@ describe('App - gameplay', () => {
       expect(screen.getByPlaceholderText('Type your guess...')).toBeInTheDocument()
     );
 
-    const nowSpy = jest.spyOn(Date, 'now')
+    const nowSpy = vi.spyOn(Date, 'now')
       .mockReturnValueOnce(1000)
       .mockReturnValueOnce(1200);
 
@@ -322,12 +322,12 @@ describe('App - gameplay', () => {
   });
 
   test('a repeated turnStarted does not stack multiple countdown intervals', async () => {
-    jest.useFakeTimers();
+    vi.useFakeTimers();
 
     render(<App />);
 
     act(() => {
-      jest.runOnlyPendingTimers();
+      vi.runOnlyPendingTimers();
     });
 
     await waitFor(() => expect(screen.getByText(/🟢 Connected/)).toBeInTheDocument());
@@ -354,12 +354,12 @@ describe('App - gameplay', () => {
     expect(screen.getByText('02:00')).toBeInTheDocument();
 
     act(() => {
-      jest.advanceTimersByTime(1000);
+      vi.advanceTimersByTime(1000);
     });
 
     expect(screen.getByText('01:59')).toBeInTheDocument();
 
-    jest.useRealTimers();
+    vi.useRealTimers();
   });
 
   test('hintUpdated outside an active game does not break the lobby render', async () => {

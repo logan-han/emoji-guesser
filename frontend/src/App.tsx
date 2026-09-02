@@ -247,7 +247,7 @@ const App: React.FC = () => {
     if (!sessionId) return;
 
     // Replace with your actual WebSocket endpoint
-    const wsUrl = process.env.REACT_APP_WS_URL || 'ws://localhost:3001';
+    const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:3001';
     const newWs = new WebSocket(wsUrl);
     setWs(newWs);
 
@@ -582,7 +582,9 @@ const App: React.FC = () => {
       seenEventIdsRef.current.add(data.eventId);
       if (seenEventIdsRef.current.size > 200) {
         const firstEventId = seenEventIdsRef.current.values().next().value;
-        seenEventIdsRef.current.delete(firstEventId);
+        if (firstEventId !== undefined) {
+          seenEventIdsRef.current.delete(firstEventId);
+        }
       }
     }
 

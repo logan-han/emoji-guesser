@@ -34,7 +34,7 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     timeout: 120 * 1000,
     env: {
-      REACT_APP_WS_URL: 'ws://localhost:3001',
+      VITE_WS_URL: 'ws://localhost:3001',
     },
   },
 });
