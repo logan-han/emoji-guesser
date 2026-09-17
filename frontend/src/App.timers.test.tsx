@@ -1,4 +1,3 @@
-import React from 'react';
 import { screen, waitFor, fireEvent } from '@testing-library/react';
 import { act } from 'react';
 import App from './App';

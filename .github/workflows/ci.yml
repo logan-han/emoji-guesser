@@ -42,6 +42,10 @@ jobs:
         run: yarn tsc --noEmit
         working-directory: ./frontend
 
+      - name: Frontend Lint
+        run: yarn lint
+        working-directory: ./frontend
+
       - name: Install Backend Dependencies
         run: yarn install --frozen-lockfile
         working-directory: ./backend
@@ -59,6 +63,10 @@ jobs:
 
       - name: Backend Type Check
         run: yarn tsc --noEmit
+        working-directory: ./backend
+
+      - name: Backend Lint
+        run: yarn lint
         working-directory: ./backend
 
       - name: Install Playwright Browsers

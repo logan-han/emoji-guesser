@@ -6,7 +6,6 @@ import {
   installBrowserMocks,
   resetTestMocks,
   mockSend,
-  mockWebSocketInstances,
   renderAndConnect,
   sendServerMessage,
   sendServerMessages,

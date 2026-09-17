@@ -1,11 +1,9 @@
-import React from 'react';
 import { screen, waitFor, fireEvent } from '@testing-library/react';
 import App from './App';
 import {
   installBrowserMocks,
   resetTestMocks,
   mockSend,
-  mockWebSocketInstances,
   renderAndConnect,
   sendServerMessage,
   sessionStorageMock,

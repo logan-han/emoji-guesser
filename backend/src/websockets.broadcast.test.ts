@@ -222,7 +222,7 @@ describe('Restart settings', () => {
 describe('Games stored without a spectator list', () => {
   // Records written before spectators existed have no `spectators` key at all.
   const unwatchedGame = (overrides: Record<string, unknown> = {}) => {
-    const { spectators, ...game } = watchedGame(overrides);
+    const { spectators: _spectators, ...game } = watchedGame(overrides);
     return game;
   };
 

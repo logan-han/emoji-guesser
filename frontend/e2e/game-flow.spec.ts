@@ -246,8 +246,6 @@ test.describe('Game In Progress', () => {
   test('should show word choosing view for describer', async ({ page }) => {
     // First inject game creation, then word choice
     await page.addInitScript(() => {
-      let messageCount = 0;
-
       class MockWebSocket {
         onopen: ((event: Event) => void) | null = null;
         onmessage: ((event: MessageEvent) => void) | null = null;

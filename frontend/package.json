@@ -9,6 +9,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "generate:sounds": "node scripts/generate-sounds.cjs",
+    "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
@@ -24,6 +25,7 @@
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.57.0",
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.6.3",
@@ -34,9 +36,14 @@
     "@types/react-dom": "^19.0.0",
     "@vitejs/plugin-react": "^6.1.1",
     "@vitest/coverage-v8": "^4.1.11",
+    "eslint": "^10.10.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.7",
+    "globals": "^17.12.0",
     "jsdom": "^26.0.0",
     "playwright": "^1.57.0",
     "typescript": "^5.9.3",
+    "typescript-eslint": "^8.70.0",
     "vite": "^8.2.2",
     "vitest": "^4.1.11"
   },

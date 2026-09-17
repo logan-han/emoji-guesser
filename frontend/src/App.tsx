@@ -53,10 +53,11 @@ interface WebSocketOutgoingMessage {
 }
 
 // WebSocket incoming message type - server responses have dynamic structure based on action
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type WebSocketIncomingMessage = {
   action: string;
-  [key: string]: any; // Server responses have varying shapes based on action type
+  // Server responses have varying shapes based on action type
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  [key: string]: any;
 }
 
 const PLAYER_NAME_ADJECTIVES = [
@@ -423,7 +424,6 @@ const App: React.FC = () => {
         }
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sendMessage]);
 
   // Heartbeat that includes gameId when in game, or basic heartbeat when not in game
@@ -641,7 +641,7 @@ const App: React.FC = () => {
         ]); // Clear messages and add start message
         console.log('Game started:', data.game);
         break;
-      case 'chooseWord':
+      case 'chooseWord': {
         setIsChoosingWord(true);
         setIsDescriber(false);
         setWordOptions(data.wordOptions);
@@ -666,6 +666,7 @@ const App: React.FC = () => {
           timestamp: Date.now() 
         }]);
         break;
+      }
       case 'describeWord':
         setIsDescriber(true);
         setIsChoosingWord(false);

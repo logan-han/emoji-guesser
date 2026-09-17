@@ -1,22 +1,21 @@
 import { generate } from 'random-words';
 
 // Type declaration for compromise since @types/compromise is not available
-declare const compromiseNlp: {
-  (text: string): {
-    nouns(): {
-      out(format: string): string[];
-    };
+type CompromiseNlp = (text: string) => {
+  nouns(): {
+    out(format: string): string[];
   };
 };
 
-// Import compromise using require for compatibility
-const nlp = require('compromise') as typeof compromiseNlp;
+// Import compromise using require for compatibility: it ships CommonJS only.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const nlp = require('compromise') as CompromiseNlp;
 
 /**
  * Generates 3 random nouns using random-words and compromise
  */
 export async function getRandomWords(): Promise<string[]> {
-  let nouns: string[] = [];
+  const nouns: string[] = [];
   try {
     while (nouns.length < 3) {
       // Generate a batch of random words

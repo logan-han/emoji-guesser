@@ -438,7 +438,7 @@ export const disconnect: APIGatewayProxyHandler = async (event) => {
   return { statusCode: 200, body: 'Disconnected' };
 };
 
-export const listPublicGames: APIGatewayProxyHandler = async (event) => {
+export const listPublicGames: APIGatewayProxyHandler = async (_event) => {
     const params = {
         TableName: GAMES_TABLE,
         FilterExpression: 'isPublic = :true and gameState = :waiting',
@@ -896,7 +896,7 @@ async function chooseWord(connectionId: string, gameId: string, word: string, ev
     }
 }
 
-async function startHintTimer(gameId: string, event: APIGatewayEvent) {
+async function startHintTimer(_gameId: string, _event: APIGatewayEvent) {
     // This function will be called periodically to update hints
     // For now, we'll handle hint updates in the game loop
 }
@@ -1130,7 +1130,7 @@ async function heartbeat(connectionId: string, event: APIGatewayEvent, sessionId
             }
         }
         
-        let heartbeatResponse: any = { action: 'heartbeatAck' };
+        const heartbeatResponse: any = { action: 'heartbeatAck' };
         console.log(`Found ${gamesToProcess.length} games for player ${connectionId}`);
         
         for (const game of gamesToProcess) {
@@ -1567,7 +1567,7 @@ export const default_handler: APIGatewayProxyHandler = async (event) => {
     let data;
     try {
         data = JSON.parse(event.body);
-    } catch (e) {
+    } catch {
         console.error("Failed to parse message body:", event.body);
         return { statusCode: 400, body: 'Invalid JSON format.' };
     }
@@ -1665,7 +1665,7 @@ export const default_handler: APIGatewayProxyHandler = async (event) => {
     return { statusCode: 200, body: 'Message handled.' };
 };
 
-export const cleanupGames: APIGatewayProxyHandler = async (event) => {
+export const cleanupGames: APIGatewayProxyHandler = async (_event) => {
     const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
 
