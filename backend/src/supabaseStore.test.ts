@@ -328,6 +328,58 @@ describe('supabaseStore', () => {
       expect(row.data.state).toBe('NEW');
     });
 
+    test('handles a REMOVE-only expression with no values supplied', async () => {
+      const { gameStore, UpdateCommand } = await loadModule();
+      const existing = { gameId: 'g1', gameState: 'ENDED', secretWord: 'apple' };
+      const upsertBuilder = buildQueryBuilder({ error: null });
+      mockFrom
+        .mockReturnValueOnce(buildQueryBuilder({ data: { data: existing }, error: null }))
+        .mockReturnValueOnce(upsertBuilder);
+
+      await gameStore.send(
+        new UpdateCommand({ Key: { gameId: 'g1' }, UpdateExpression: ' REMOVE secretWord' })
+      );
+
+      const [row] = upsertBuilder.upsert.mock.calls[0];
+      expect(row.data.gameState).toBe('ENDED');
+      expect(row.data.secretWord).toBeUndefined();
+    });
+
+    test('leaves the game as it was when no expression is supplied', async () => {
+      const { gameStore, UpdateCommand } = await loadModule();
+      const existing = { gameId: 'g1', gameState: 'WAITING', secretWord: 'apple' };
+      const upsertBuilder = buildQueryBuilder({ error: null });
+      mockFrom
+        .mockReturnValueOnce(buildQueryBuilder({ data: { data: existing }, error: null }))
+        .mockReturnValueOnce(upsertBuilder);
+
+      await gameStore.send(new UpdateCommand({ Key: { gameId: 'g1' } }));
+
+      const [row] = upsertBuilder.upsert.mock.calls[0];
+      expect(row.data).toMatchObject(existing);
+    });
+
+    test('skips a SET clause that has no value to assign', async () => {
+      const { gameStore, UpdateCommand } = await loadModule();
+      const existing = { gameId: 'g1', gameState: 'WAITING' };
+      const upsertBuilder = buildQueryBuilder({ error: null });
+      mockFrom
+        .mockReturnValueOnce(buildQueryBuilder({ data: { data: existing }, error: null }))
+        .mockReturnValueOnce(upsertBuilder);
+
+      await gameStore.send(
+        new UpdateCommand({
+          Key: { gameId: 'g1' },
+          UpdateExpression: 'set gameState = :s, orphanClause',
+          ExpressionAttributeValues: { ':s': 'ENDED' },
+        })
+      );
+
+      const [row] = upsertBuilder.upsert.mock.calls[0];
+      expect(row.data.gameState).toBe('ENDED');
+      expect(row.data).not.toHaveProperty('orphanClause');
+    });
+
     test('skips update when condition expression does not match', async () => {
       const { gameStore, UpdateCommand } = await loadModule();
       const existing = { gameId: 'g1', gameState: 'WAITING' };
@@ -527,6 +579,35 @@ describe('supabaseStore', () => {
 
       await expect(publishGameEvent('g1', {})).rejects.toThrow(
         'Realtime channel game:g1 failed with status CHANNEL_ERROR'
+      );
+    });
+
+    test('waits through intermediate statuses before broadcasting', async () => {
+      const { publishGameEvent } = await loadModule();
+      const channel = buildChannel();
+      channel.subscribe.mockImplementation((cb: any) => {
+        cb('SUBSCRIBING');
+        cb('SUBSCRIBED');
+        return channel;
+      });
+      mockChannel.mockReturnValue(channel);
+
+      await publishGameEvent('g1', { action: 'gameUpdated' });
+
+      expect(channel.send).toHaveBeenCalledTimes(1);
+    });
+
+    test.each(['TIMED_OUT', 'CLOSED'])('rejects when the channel reports %s', async (status) => {
+      const { publishGameEvent } = await loadModule();
+      const channel = buildChannel();
+      channel.subscribe.mockImplementation((cb: any) => {
+        cb(status);
+        return channel;
+      });
+      mockChannel.mockReturnValue(channel);
+
+      await expect(publishGameEvent('g1', {})).rejects.toThrow(
+        `Realtime channel game:g1 failed with status ${status}`
       );
     });
 

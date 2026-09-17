@@ -17,6 +17,13 @@ export const localStorageMock = createStorageMock();
 export const sessionStorageMock = createStorageMock();
 
 export class MockWebSocket {
+  // App code compares readyState against WebSocket.OPEN, which resolves through
+  // this class once it replaces the global.
+  static CONNECTING = 0;
+  static OPEN = 1;
+  static CLOSING = 2;
+  static CLOSED = 3;
+
   onopen: ((event: Event) => void) | null = null;
   onmessage: ((event: MessageEvent) => void) | null = null;
   onclose: ((event: CloseEvent) => void) | null = null;

@@ -8,6 +8,7 @@ import {
   mockWebSocketInstances,
   renderAndConnect,
   sendServerMessage,
+  sessionStorageMock,
   fixtures,
 } from './testUtils';
 
@@ -16,6 +17,8 @@ vi.mock('./sounds', () => ({
 }));
 
 installBrowserMocks();
+
+const sentMessages = () => mockSend.mock.calls.map(([payload]) => JSON.parse(payload as string));
 
 describe('App - lobby flow', () => {
   beforeEach(resetTestMocks);
@@ -95,6 +98,24 @@ describe('App - lobby flow', () => {
 
     expect(publicRadio).toBeChecked();
     expect(privateRadio).not.toBeChecked();
+
+    fireEvent.click(privateRadio);
+
+    expect(privateRadio).toBeChecked();
+    expect(publicRadio).not.toBeChecked();
+  });
+
+  test('switches visibility with the segmented control', async () => {
+    await renderAndConnect(App);
+
+    const publicTab = screen.getByRole('tab', { name: /Public Game/ });
+    const privateTab = screen.getByRole('tab', { name: /Private Game/ });
+
+    fireEvent.click(publicTab);
+    expect(publicTab).toHaveAttribute('aria-selected', 'true');
+
+    fireEvent.click(privateTab);
+    expect(privateTab).toHaveAttribute('aria-selected', 'true');
   });
 
   test('copies the invite link to clipboard and shows confirmation', async () => {
@@ -213,6 +234,85 @@ describe('App - lobby flow', () => {
     });
   });
 
+  test('carries the chosen rounds and round time into createGame', async () => {
+    await renderAndConnect(App);
+
+    fireEvent.change(screen.getByLabelText('Rounds'), { target: { value: '4' } });
+    fireEvent.change(screen.getByLabelText('Round time'), { target: { value: '180' } });
+    fireEvent.click(screen.getByText('Create New Game'));
+
+    await waitFor(() => expect(mockSend).toHaveBeenCalledWith(expect.stringContaining('createGame')));
+
+    expect(sentMessages()).toContainEqual(expect.objectContaining({
+      action: 'createGame',
+      maxRounds: 4,
+      timeLimit: 180,
+    }));
+  });
+
+  test('clicking a public room joins that game', async () => {
+    await renderAndConnect(App);
+    sendServerMessage({
+      action: 'publicGamesList',
+      games: [
+        {
+          gameId: 'PUBLIC1',
+          gameState: 'WAITING',
+          players: [{ name: 'Host', connectionId: 'host-conn', score: 0 }],
+        },
+      ],
+    });
+
+    await waitFor(() => expect(screen.getByText('#PUBLIC1')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('#PUBLIC1'));
+
+    expect(sentMessages()).toContainEqual(expect.objectContaining({
+      action: 'joinGame',
+      gameId: 'PUBLIC1',
+    }));
+  });
+
+  test('counts the players who have not opted into another game', async () => {
+    await renderAndConnect(App);
+    sendServerMessage(
+      fixtures.gameCreated({
+        players: [
+          fixtures.player(),
+          { name: 'Player2', connectionId: 'conn-2', score: 0, wantsToPlayAgain: false },
+        ],
+      })
+    );
+
+    await waitFor(() =>
+      expect(screen.getByText('1 player(s) waiting to rejoin')).toBeInTheDocument()
+    );
+  });
+
+  test('tracks a spectator by session id when their connection changes', async () => {
+    await renderAndConnect(App);
+    const sessionId = sessionStorageMock.setItem.mock.calls
+      .find(([key]) => key === 'emoji-guesser-session')?.[1];
+
+    sendServerMessage({
+      action: 'spectatorJoined',
+      game: {
+        gameId: 'GAME123',
+        gameState: 'IN_PROGRESS',
+        players: [{ name: 'Player1', connectionId: 'conn-1', score: 0 }],
+        spectators: [{ name: 'Watcher', connectionId: 'spec-9', sessionId, score: 0 }],
+        ownerId: 'conn-1',
+        currentRound: 1,
+        currentDescriberIndex: 0,
+      },
+    });
+
+    await waitFor(() => expect(screen.getByText(/Spectator Mode/)).toBeInTheDocument());
+
+    // The spectator's connection id is adopted, so the scoreboard stops marking
+    // the unrelated conn-1 row as "you".
+    expect(screen.queryByText('· you')).not.toBeInTheDocument();
+  });
+
   test('reveals Start Game once the owner has two or more players', async () => {
     await renderAndConnect(App);
     sendServerMessage(
@@ -226,6 +326,87 @@ describe('App - lobby flow', () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Start Game/)).toBeInTheDocument();
+    });
+  });
+
+  test('the host starts the game with the round rules they picked', async () => {
+    const { container } = await renderAndConnect(App);
+    sendServerMessage(
+      fixtures.gameCreated({
+        players: [
+          fixtures.player({ wantsToPlayAgain: true }),
+          { name: 'Player2', connectionId: 'conn-2', score: 0, wantsToPlayAgain: true },
+        ],
+      })
+    );
+
+    await waitFor(() => expect(screen.getByText(/Start Game/)).toBeInTheDocument());
+
+    fireEvent.change(container.querySelector('#max-rounds')!, { target: { value: '5' } });
+    fireEvent.change(container.querySelector('#time-limit')!, { target: { value: '300' } });
+    fireEvent.click(screen.getByText(/Start Game/));
+
+    expect(sentMessages()).toContainEqual(expect.objectContaining({
+      action: 'startGame',
+      gameId: 'GAME123',
+      maxRounds: 5,
+      timeLimit: 300,
+    }));
+  });
+
+  describe('editing your name in the waiting room', () => {
+    const openNameEditor = async () => {
+      await renderAndConnect(App);
+      sendServerMessage(fixtures.gameCreated());
+      await waitFor(() => expect(screen.getByText('TestPlayer')).toBeInTheDocument());
+      fireEvent.click(screen.getByText('(click to edit)'));
+      return screen.getByPlaceholderText('Enter your name (required)');
+    };
+
+    test('blurring a blank field restores the previous name', async () => {
+      const input = await openNameEditor();
+
+      fireEvent.change(input, { target: { value: '   ' } });
+      fireEvent.blur(input);
+
+      await waitFor(() => expect(screen.getByText('TestPlayer')).toBeInTheDocument());
+      expect(mockSend).not.toHaveBeenCalledWith(expect.stringContaining('updatePlayerName'));
+    });
+
+    test('Enter commits the new name', async () => {
+      const input = await openNameEditor();
+
+      fireEvent.change(input, { target: { value: 'Renamed' } });
+      fireEvent.keyDown(input, { key: 'Enter' });
+
+      expect(sentMessages()).toContainEqual(expect.objectContaining({
+        action: 'updatePlayerName',
+        name: 'Renamed',
+      }));
+    });
+
+    test('Escape closes the editor without sending anything', async () => {
+      const input = await openNameEditor();
+
+      fireEvent.change(input, { target: { value: 'Discarded' } });
+      fireEvent.keyDown(input, { key: 'Escape' });
+
+      await waitFor(() =>
+        expect(screen.queryByPlaceholderText('Enter your name (required)')).not.toBeInTheDocument()
+      );
+      expect(mockSend).not.toHaveBeenCalledWith(expect.stringContaining('updatePlayerName'));
+    });
+
+    test('a name made only of markup is rejected', async () => {
+      const input = await openNameEditor();
+
+      fireEvent.change(input, { target: { value: '<b></b>' } });
+      fireEvent.blur(input);
+
+      await waitFor(() =>
+        expect(screen.getByText('Name must be 1-20 characters')).toBeInTheDocument()
+      );
+      expect(mockSend).not.toHaveBeenCalledWith(expect.stringContaining('updatePlayerName'));
     });
   });
 });
