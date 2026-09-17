@@ -175,4 +175,51 @@ describe('App - end-of-game, errors and restart', () => {
       expect(screen.getByTitle('Game Host')).toBeInTheDocument();
     });
   });
+  test('lists the players who missed the podium', async () => {
+    await renderAndConnect(App);
+    sendServerMessage(
+      fixtures.gameEnded({
+        players: [
+          { name: 'First', connectionId: 'c1', score: 100 },
+          { name: 'Second', connectionId: 'c2', score: 80 },
+          { name: 'Third', connectionId: 'c3', score: 60 },
+          { name: 'Fourth', connectionId: 'c4', score: 40, wantsToPlayAgain: true },
+          { name: 'Fifth', connectionId: 'c5', score: 20 },
+        ],
+      })
+    );
+
+    await waitFor(() => expect(screen.getByText('Final Scores:')).toBeInTheDocument());
+
+    expect(screen.getByText('#4')).toBeInTheDocument();
+    expect(screen.getByText('#5')).toBeInTheDocument();
+    expect(screen.getByText('40 pts')).toBeInTheDocument();
+  });
+
+  test('a disconnect that ends the game stops the round timer', async () => {
+    await renderAndConnect(App);
+    sendServerMessage(fixtures.gameStarted({
+      currentDescriberIndex: 0,
+      turnState: 'DESCRIBING',
+      turnStartTime: new Date().toISOString(),
+      timeLimit: 120,
+      players: [fixtures.player(), { name: 'Player2', connectionId: 'conn-2', score: 0 }],
+    }));
+
+    await waitFor(() => expect(screen.getByText('02:00')).toBeInTheDocument());
+
+    sendServerMessage({
+      action: 'playerLeft',
+      message: 'Player2 left the game',
+      game: {
+        gameId: 'GAME123',
+        gameState: 'ENDED',
+        players: [fixtures.player()],
+        ownerId: fixtures.TEST_CONN,
+      },
+    });
+
+    await waitFor(() => expect(screen.getByText('Final Scores:')).toBeInTheDocument());
+    expect(screen.queryByText('02:00')).not.toBeInTheDocument();
+  });
 });

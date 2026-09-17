@@ -19,6 +19,27 @@ vi.mock('./sounds', () => ({
 
 installBrowserMocks();
 
+const sentMessages = () => mockSend.mock.calls.map(([payload]) => JSON.parse(payload as string));
+
+const describerTurn = () => {
+  sendServerMessage(fixtures.gameStarted({ currentDescriberIndex: 0, turnState: 'CHOOSING_WORD' }));
+  sendServerMessage({
+    action: 'describeWord',
+    word: 'elephant',
+    game: {
+      gameId: 'GAME123',
+      gameState: 'IN_PROGRESS',
+      players: [fixtures.player()],
+      ownerId: fixtures.TEST_CONN,
+      currentRound: 1,
+      currentDescriberIndex: 0,
+      turnState: 'DESCRIBING',
+      turnStartTime: new Date().toISOString(),
+      timeLimit: 120,
+    },
+  });
+};
+
 describe('App - gameplay', () => {
   beforeEach(resetTestMocks);
 
@@ -366,5 +387,138 @@ describe('App - gameplay', () => {
     await renderAndConnect(App);
     sendServerMessage({ action: 'hintUpdated', hint: 'E _ _ P _ _ _ _' });
     expect(screen.getByText(/Create New Game/)).toBeInTheDocument();
+  });
+
+  test('replaying an emoji from the quickbar sends it again', async () => {
+    const { container } = await renderAndConnect(App);
+    describerTurn();
+    sendServerMessage({ action: 'newEmoji', emoji: '🐘' });
+
+    await waitFor(() => expect(container.querySelector('.emoji-key')).toBeInTheDocument());
+    fireEvent.click(container.querySelector('.emoji-key')!);
+
+    expect(sentMessages()).toContainEqual({
+      action: 'submitEmoji',
+      gameId: 'GAME123',
+      emoji: '🐘',
+    });
+  });
+
+  test('the describer can clear the emoji they have played', async () => {
+    await renderAndConnect(App);
+    describerTurn();
+    sendServerMessage({ action: 'newEmoji', emoji: '🐘' });
+
+    await waitFor(() => expect(screen.getByText('Clear all')).toBeInTheDocument());
+    fireEvent.click(screen.getByText('Clear all'));
+
+    expect(sentMessages()).toContainEqual({ action: 'clearEmojis', gameId: 'GAME123' });
+    await waitFor(() => expect(screen.getByText('Waiting for emojis...')).toBeInTheDocument());
+  });
+
+  test('emojisCleared wipes the canvas', async () => {
+    await renderAndConnect(App);
+    sendServerMessages(
+      fixtures.gameStarted({ currentDescriberIndex: 0 }),
+      { action: 'newEmoji', emoji: '🎉' },
+    );
+
+    await waitFor(() => expect(screen.getByText(/🎉/)).toBeInTheDocument());
+
+    sendServerMessage({ action: 'emojisCleared' });
+
+    await waitFor(() => expect(screen.getByText('Waiting for emojis...')).toBeInTheDocument());
+  });
+
+  test('playerJoined mid-game adds the player and restarts the round timer', async () => {
+    await renderAndConnect(App);
+    sendServerMessage({
+      action: 'playerJoined',
+      game: {
+        gameId: 'GAME123',
+        gameState: 'IN_PROGRESS',
+        players: [fixtures.player(), { name: 'Player2', connectionId: 'conn-2', score: 0 }],
+        ownerId: fixtures.TEST_CONN,
+        currentRound: 1,
+        currentDescriberIndex: 0,
+        turnState: 'DESCRIBING',
+        turnStartTime: new Date().toISOString(),
+        timeLimit: 120,
+      },
+    });
+
+    await waitFor(() => expect(screen.getByText('2 players')).toBeInTheDocument());
+    expect(screen.getByText('02:00')).toBeInTheDocument();
+  });
+
+  test('playerReconnected refreshes the roster', async () => {
+    await renderAndConnect(App);
+    sendServerMessage({
+      action: 'playerReconnected',
+      game: {
+        gameId: 'GAME123',
+        gameState: 'WAITING',
+        players: [fixtures.player(), { name: 'Player2', connectionId: 'conn-2', score: 0 }],
+        ownerId: fixtures.TEST_CONN,
+      },
+    });
+
+    await waitFor(() => expect(screen.getByText(/Players \(2\)/)).toBeInTheDocument());
+  });
+
+  test('a message with no game drops back to the lobby instead of throwing', async () => {
+    await renderAndConnect(App);
+    sendServerMessage(fixtures.gameCreated());
+    await waitFor(() => expect(screen.getByText('🎯 Game Lobby')).toBeInTheDocument());
+
+    sendServerMessage({ action: 'playerNameUpdated' });
+
+    await waitFor(() => expect(screen.getByText(/Create New Game/)).toBeInTheDocument());
+  });
+
+  test('an empty or markup-only guess is never sent', async () => {
+    await renderAndConnect(App);
+    sendServerMessage(fixtures.gameStarted({
+      currentDescriberIndex: 0,
+      players: [fixtures.player(), { name: 'Player2', connectionId: 'conn-2', score: 0 }],
+    }));
+
+    await waitFor(() => expect(screen.getByPlaceholderText('Type your guess...')).toBeInTheDocument());
+    const input = screen.getByPlaceholderText('Type your guess...');
+    const form = input.closest('form')!;
+
+    fireEvent.submit(form);
+    fireEvent.change(input, { target: { value: '<b></b>' } });
+    fireEvent.submit(form);
+
+    expect(mockSend).not.toHaveBeenCalledWith(expect.stringContaining('submitGuess'));
+  });
+
+  test('a repeated event id is applied only once', async () => {
+    await renderAndConnect(App);
+    sendServerMessage(fixtures.gameStarted({ currentDescriberIndex: 0 }));
+
+    const guess = { action: 'newGuess', text: 'Player2: apple', eventId: 'evt-1' };
+    sendServerMessages(guess, guess);
+
+    await waitFor(() => expect(screen.getAllByText('Player2: apple')).toHaveLength(1));
+  });
+
+  test('the seen-event list is trimmed rather than growing without bound', async () => {
+    await renderAndConnect(App);
+    sendServerMessage(fixtures.gameStarted({ currentDescriberIndex: 0 }));
+
+    const guesses = Array.from({ length: 205 }, (_, index) => ({
+      action: 'newGuess',
+      text: `Player2: guess${index}`,
+      eventId: `evt-${index}`,
+    }));
+    sendServerMessages(...guesses);
+
+    await waitFor(() => expect(screen.getByText('Player2: guess204')).toBeInTheDocument());
+
+    // The oldest id has been evicted, so its message is accepted a second time.
+    sendServerMessage(guesses[0]);
+    await waitFor(() => expect(screen.getAllByText('Player2: guess0')).toHaveLength(2));
   });
 });

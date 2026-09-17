@@ -972,6 +972,19 @@ describe('WebSocket Handler Tests', () => {
       }));
     });
 
+    test('handles missing gameId for startGame', async () => {
+      const event = {
+        ...mockEvent,
+        body: JSON.stringify({ action: 'startGame' })
+      };
+
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPostToConnectionCommand).toHaveBeenCalledWith(expect.objectContaining({
+        Data: expect.stringContaining('gameId is required for startGame action.')
+      }));
+    });
+
     test('handles missing gameId for timeUp', async () => {
       const event = {
         ...mockEvent,
@@ -1912,6 +1925,20 @@ describe('WebSocket Handler Tests', () => {
         Data: expect.stringContaining('Player name is required.'),
       }));
       expect(mockUpdateCommand).not.toHaveBeenCalled();
+    });
+
+    test('invents a name when a game is created without one', async () => {
+      const event = {
+        ...mockEvent,
+        body: JSON.stringify({ action: 'createGame' }),
+      };
+      await default_handler(event as APIGatewayEvent, {} as any, {} as any);
+
+      expect(mockPutCommand).toHaveBeenCalledWith(expect.objectContaining({
+        Item: expect.objectContaining({
+          players: [expect.objectContaining({ name: expect.stringMatching(/^[A-Z][a-z]+ [A-Z][a-z]+ \d{2}$/) })],
+        }),
+      }));
     });
   });
 });
