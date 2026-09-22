@@ -29,7 +29,16 @@ import java.util.concurrent.atomic.AtomicLong
  * Minimal Supabase Realtime client (Phoenix Channels protocol) used to receive
  * game broadcast events that the backend publishes via supabase channels.
  */
-class SupabaseRealtimeClient {
+class SupabaseRealtimeClient(
+    private val supabaseUrl: String = BuildConfig.SUPABASE_URL,
+    private val anonKey: String = BuildConfig.SUPABASE_ANON_KEY,
+    private val socketFactory: WebSocket.Factory = OkHttpClient.Builder()
+        .readTimeout(0, TimeUnit.MILLISECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .pingInterval(20, TimeUnit.SECONDS)
+        .build(),
+    private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
+) {
     companion object {
         private const val TAG = "SupabaseRealtime"
         private const val HEARTBEAT_INTERVAL = 30_000L
@@ -42,13 +51,6 @@ class SupabaseRealtimeClient {
         encodeDefaults = true
     }
 
-    private val client = OkHttpClient.Builder()
-        .readTimeout(0, TimeUnit.MILLISECONDS)
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .pingInterval(20, TimeUnit.SECONDS)
-        .build()
-
-    private val scope = CoroutineScope(Dispatchers.IO)
     private val refCounter = AtomicLong(1)
 
     private var webSocket: WebSocket? = null
@@ -61,13 +63,13 @@ class SupabaseRealtimeClient {
     val messages: SharedFlow<ServerMessage> = _messages
 
     private fun realtimeUrl(): String? {
-        val rawUrl = BuildConfig.SUPABASE_URL.takeIf { it.isNotBlank() } ?: return null
-        val anonKey = BuildConfig.SUPABASE_ANON_KEY.takeIf { it.isNotBlank() } ?: return null
+        val rawUrl = supabaseUrl.takeIf { it.isNotBlank() } ?: return null
+        val key = anonKey.takeIf { it.isNotBlank() } ?: return null
         val wsHost = rawUrl
             .removePrefix("https://")
             .removePrefix("http://")
             .trimEnd('/')
-        return "wss://$wsHost/realtime/v1/websocket?apikey=$anonKey&vsn=1.0.0"
+        return "wss://$wsHost/realtime/v1/websocket?apikey=$key&vsn=1.0.0"
     }
 
     fun subscribe(gameId: String) {
@@ -96,7 +98,7 @@ class SupabaseRealtimeClient {
 
     private fun openSocket(url: String, gameId: String) {
         val request = Request.Builder().url(url).build()
-        webSocket = client.newWebSocket(request, object : WebSocketListener() {
+        webSocket = socketFactory.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 Logger.d(TAG, "Realtime WS open for game:$gameId")
                 joinChannel(webSocket, gameId)

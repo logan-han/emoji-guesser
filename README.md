@@ -182,5 +182,6 @@ For manual deployment, you can use the `deploy.sh` script after configuring your
 -   `./gradlew assembleDebug`: Build debug APK.
 -   `./gradlew assembleRelease`: Build release APK.
 -   `./gradlew bundleRelease`: Build release AAB for Play Store.
--   `./gradlew test`: Run unit tests.
+-   `./gradlew test`: Run unit tests (JVM and Robolectric).
+-   `./gradlew createDebugUnitTestCoverageReport`: Run unit tests and write a JaCoCo report to `app/build/reports/coverage/test/debug/`.
 -   `./gradlew lint`: Run Android lint checks.

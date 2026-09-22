@@ -22,7 +22,13 @@ import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import java.util.concurrent.TimeUnit
 
-class WebSocketClient {
+class WebSocketClient(
+    private val socketFactory: WebSocket.Factory = OkHttpClient.Builder()
+        .readTimeout(0, TimeUnit.MILLISECONDS)
+        .connectTimeout(10, TimeUnit.SECONDS)
+        .build(),
+    private val scope: CoroutineScope = CoroutineScope(Dispatchers.IO)
+) {
     companion object {
         private const val TAG = "WebSocketClient"
         private const val MAX_RECONNECT_ATTEMPTS = 5
@@ -36,15 +42,9 @@ class WebSocketClient {
         encodeDefaults = true
     }
 
-    private val client = OkHttpClient.Builder()
-        .readTimeout(0, TimeUnit.MILLISECONDS)
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .build()
-
     private var webSocket: WebSocket? = null
     private var reconnectAttempts = 0
     private var heartbeatJob: Job? = null
-    private val scope = CoroutineScope(Dispatchers.IO)
 
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
     val connectionState: StateFlow<ConnectionState> = _connectionState
@@ -67,7 +67,7 @@ class WebSocketClient {
             .url(BuildConfig.WS_URL)
             .build()
 
-        webSocket = client.newWebSocket(request, object : WebSocketListener() {
+        webSocket = socketFactory.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
                 Logger.d(TAG, "WebSocket connected")
                 _connectionState.value = ConnectionState.CONNECTED

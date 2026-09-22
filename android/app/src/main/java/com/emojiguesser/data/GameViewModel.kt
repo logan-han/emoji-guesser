@@ -15,9 +15,13 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.UUID
 
-class GameViewModel(application: Application) : AndroidViewModel(application) {
-    private val webSocketClient = WebSocketClient()
-    private val realtimeClient = SupabaseRealtimeClient()
+class GameViewModel internal constructor(
+    application: Application,
+    private val webSocketClient: WebSocketClient,
+    private val realtimeClient: SupabaseRealtimeClient
+) : AndroidViewModel(application) {
+    constructor(application: Application) : this(application, WebSocketClient(), SupabaseRealtimeClient())
+
     private val prefs = application.getSharedPreferences("emoji_guesser", Context.MODE_PRIVATE)
     private val app get() = getApplication<EmojiGuesserApp>()
     private val seenEventIds = ArrayDeque<String>()

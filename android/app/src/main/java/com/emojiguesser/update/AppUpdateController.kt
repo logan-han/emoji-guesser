@@ -21,9 +21,10 @@ import kotlinx.coroutines.flow.asStateFlow
  * Wraps Play In-App Updates. Uses flexible flow so users can keep playing while the
  * update downloads; high-priority or very stale builds escalate to immediate.
  */
-class AppUpdateController(activity: Activity) {
-
+class AppUpdateController(
+    activity: Activity,
     private val manager: AppUpdateManager = AppUpdateManagerFactory.create(activity)
+) {
 
     private val _updateDownloaded = MutableStateFlow(false)
     val updateDownloaded: StateFlow<Boolean> = _updateDownloaded.asStateFlow()

@@ -38,6 +38,7 @@ jobs:
           path: |
             ~/.gradle/caches
             ~/.gradle/wrapper
+            ~/.m2/repository/org/robolectric
           key: gradle-deps-${{ runner.os }}-${{ hashFiles('android/**/*.gradle.kts', 'android/**/gradle-wrapper.properties') }}
           restore-keys: |
             gradle-deps-${{ runner.os }}-
@@ -49,7 +50,16 @@ jobs:
         run: ./gradlew lint --stacktrace
 
       - name: Test
-        run: ./gradlew test --stacktrace
+        run: ./gradlew test createDebugUnitTestCoverageReport --stacktrace
+
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: android/app/build/reports/coverage/test/debug/report.xml
+          disable_search: true
+          flags: android
+          name: android-coverage
 
       - name: Upload lint reports
         if: always()
