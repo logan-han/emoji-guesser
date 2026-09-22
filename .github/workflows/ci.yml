@@ -35,6 +35,8 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          files: frontend/coverage/lcov.info
+          disable_search: true
           flags: frontend
           name: frontend-coverage
 
@@ -58,6 +60,8 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
+          files: backend/coverage/lcov.info
+          disable_search: true
           flags: backend
           name: backend-coverage
 
