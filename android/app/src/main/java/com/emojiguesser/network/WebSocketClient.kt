@@ -42,9 +42,11 @@ class WebSocketClient(
         encodeDefaults = true
     }
 
-    private var webSocket: WebSocket? = null
+    // Written on the caller's thread, read from OkHttp's callback threads.
+    @Volatile private var webSocket: WebSocket? = null
     private var reconnectAttempts = 0
     private var heartbeatJob: Job? = null
+    private var reconnectJob: Job? = null
 
     private val _connectionState = MutableStateFlow(ConnectionState.DISCONNECTED)
     val connectionState: StateFlow<ConnectionState> = _connectionState
@@ -69,6 +71,7 @@ class WebSocketClient(
 
         webSocket = socketFactory.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                if (!isCurrent(webSocket)) return
                 Logger.d(TAG, "WebSocket connected")
                 _connectionState.value = ConnectionState.CONNECTED
                 reconnectAttempts = 0
@@ -76,6 +79,7 @@ class WebSocketClient(
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
+                if (!isCurrent(webSocket)) return
                 Logger.d(TAG, "Received: $text")
                 try {
                     val message = json.decodeFromString<ServerMessage>(text)
@@ -94,22 +98,26 @@ class WebSocketClient(
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 Logger.d(TAG, "WebSocket closed: $code - $reason")
-                handleDisconnect()
+                if (isCurrent(webSocket)) handleDisconnect()
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 Logger.e(TAG, "WebSocket failure", t)
-                handleDisconnect()
+                if (isCurrent(webSocket)) handleDisconnect()
             }
         })
     }
+
+    // Late callbacks from a socket we replaced or closed on purpose must not touch the live one.
+    private fun isCurrent(socket: WebSocket) = socket === webSocket
 
     private fun handleDisconnect() {
         _connectionState.value = ConnectionState.DISCONNECTED
         stopHeartbeat()
 
         if (reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-            scope.launch {
+            reconnectJob?.cancel()
+            reconnectJob = scope.launch {
                 val delayMs = INITIAL_RECONNECT_DELAY * (1 shl reconnectAttempts)
                 Logger.d(TAG, "Reconnecting in ${delayMs}ms (attempt ${reconnectAttempts + 1})")
                 delay(delayMs)
@@ -231,6 +239,8 @@ class WebSocketClient(
     }
 
     fun disconnect() {
+        reconnectJob?.cancel()
+        reconnectJob = null
         stopHeartbeat()
         webSocket?.close(1000, "User disconnected")
         webSocket = null

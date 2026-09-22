@@ -58,9 +58,13 @@ class GameViewModelMessagesTest {
     }
 
     @Test
-    fun `gameStarted and nextTurn clear the round and only gameStarted plays the start sound`() {
-        listOf("gameStarted", "nextTurn").forEach { action ->
+    fun `gameStarted, nextTurn and gameRestarted clear the turn and only gameStarted plays the start sound`() {
+        listOf("gameStarted", "nextTurn", "gameRestarted").forEach { action ->
             rule.server(ServerMessage(action = "playerJoined", game = game()))
+            rule.server(ServerMessage(action = "chooseWord", wordOptions = listOf("kiwi", "plum")))
+            rule.server(ServerMessage(action = "describeWord", word = "apple"))
+            rule.server(ServerMessage(action = "turnStarted", hint = "a _ _ _ _"))
+            rule.server(ServerMessage(action = "chooseWord", wordOptions = listOf("kiwi", "plum")))
             rule.server(ServerMessage(action = "newEmoji", emoji = "🐘"))
             rule.server(ServerMessage(action = "newGuess", text = "cat", guesserId = "c2"))
             rule.server(ServerMessage(action = "wordGuessed", word = "elephant", guesserName = "Bob"))
@@ -69,6 +73,9 @@ class GameViewModelMessagesTest {
 
             assertTrue(action, vm.emojis.value.isEmpty())
             assertTrue(action, vm.guesses.value.isEmpty())
+            assertTrue(action, vm.wordOptions.value.isEmpty())
+            assertNull(action, vm.secretWord.value)
+            assertNull(action, vm.currentHint.value)
             assertNull(action, vm.lastGuessedWord.value)
             assertNull(action, vm.lastGuesserName.value)
         }
@@ -203,10 +210,14 @@ class GameViewModelMessagesTest {
 
     @Test
     fun `late updates for an ended game are ignored`() {
+        rule.server(ServerMessage(action = "wordGuessed", word = "apple", guesserName = "Bob"))
         rule.server(ServerMessage(action = "gameEnded", game = game(state = "ENDED", round = 5)))
 
         rule.server(ServerMessage(action = "nextTurn", game = game(round = 6)))
+        rule.server(ServerMessage(action = "gameStarted", game = game(round = 6)))
         assertEquals(5, vm.currentGame.value?.currentRound)
+        assertEquals("apple", vm.lastGuessedWord.value)
+        assertEquals(0, rule.plays(SoundEvent.GameStart))
 
         rule.server(ServerMessage(action = "gameEnded", game = game(state = "ENDED", round = 7)))
         assertEquals(7, vm.currentGame.value?.currentRound)
@@ -254,18 +265,12 @@ class GameViewModelMessagesTest {
     }
 
     @Test
-    fun `a new turn keeps the previous secret word, hint and options`() {
-        rule.server(ServerMessage(action = "chooseWord", wordOptions = listOf("kiwi", "plum")))
-        rule.server(ServerMessage(action = "describeWord", word = "apple", game = game()))
-        rule.server(ServerMessage(action = "turnStarted", hint = "a _ _ _ _"))
-        rule.server(ServerMessage(action = "chooseWord", wordOptions = listOf("kiwi", "plum")))
+    fun `a restart brings an ended game back to the waiting room`() {
+        rule.server(ServerMessage(action = "gameEnded", game = game(state = "ENDED")))
 
-        rule.server(ServerMessage(action = "nextTurn", game = game(round = 2)))
         rule.server(ServerMessage(action = "gameRestarted", game = game(state = "WAITING")))
 
-        // Bug: the web client clears the word, hint and options on nextTurn/gameRestarted; Android keeps them.
-        assertEquals("apple", vm.secretWord.value)
-        assertEquals("a _ _ _ _", vm.currentHint.value)
-        assertEquals(listOf("kiwi", "plum"), vm.wordOptions.value)
+        assertEquals("WAITING", vm.currentGame.value?.gameState)
+        assertEquals(GamePhase.Waiting, vm.currentGame.value?.phase())
     }
 }

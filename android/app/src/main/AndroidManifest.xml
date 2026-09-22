@@ -28,15 +28,15 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- Deep link for game invites -->
+            <!-- Game invite links: the shared /?gameId= link, plus the /game/<id> form -->
             <intent-filter android:autoVerify="true">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <category android:name="android.intent.category.BROWSABLE" />
-                <data
-                    android:scheme="https"
-                    android:host="emoji.han.life"
-                    android:pathPrefix="/game/" />
+                <data android:scheme="https" />
+                <data android:host="emoji.han.life" />
+                <data android:path="/" />
+                <data android:pathPrefix="/game/" />
             </intent-filter>
         </activity>
     </application>

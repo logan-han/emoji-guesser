@@ -33,7 +33,7 @@ internal fun game(
     isPublic = isPublic
 )
 
-/** A clickable node with no text or description, e.g. the lobby toggle or the guess send button. */
+/** A clickable node with no text or description, e.g. the guess send button. */
 internal val textlessClickable = SemanticsMatcher("clickable without text") { node ->
     SemanticsActions.OnClick in node.config &&
         SemanticsActions.SetText !in node.config &&

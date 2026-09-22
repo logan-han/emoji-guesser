@@ -7,6 +7,9 @@ import androidx.lifecycle.ViewModelStore
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.emojiguesser.audio.SoundEvent
 import com.emojiguesser.network.ConnectionState
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.jsonPrimitive
@@ -38,6 +41,11 @@ class GameViewModelActionsTest {
 
     private fun receiveGame(game: Game = Game(gameId = "G1", ownerId = "c-me", players = listOf(me(), other))) =
         rule.server(ServerMessage(action = "playerJoined", game = game))
+
+    // Settings are written by DataStore on its own thread, so wait for the state to catch up.
+    private fun awaitUntil(condition: () -> Boolean) = runBlocking {
+        withTimeout(5_000) { while (!condition()) delay(10) }
+    }
 
     @Test
     fun `a session id is created once and reused`() {
@@ -226,18 +234,28 @@ class GameViewModelActionsTest {
     }
 
     @Test
-    fun `a cleared view model reconnects and heartbeats once its socket reports closed`() {
+    fun `a cleared view model stays offline once its socket reports closed`() {
         rule.connect()
         rule.clear()
 
         rule.ws.last.closed(1000, "User disconnected")
-        rule.advance(1_000)
-        rule.ws.last.open()
-        rule.advance(5_000)
+        rule.advance(60_000)
 
-        // Bug: WebSocketClient.disconnect() has no intentional-close flag, so the cleared view model's socket comes back.
-        assertEquals(2, rule.ws.sockets.size)
-        assertEquals("heartbeat", rule.ws.last.sentJson.single().str("action"))
+        assertEquals(1, rule.ws.sockets.size)
+        assertTrue(rule.ws.last.sent.isEmpty())
+    }
+
+    @Test
+    fun `sound and haptic settings round-trip through the settings store`() {
+        awaitUntil { vm.soundsEnabled.value && vm.hapticsEnabled.value }
+
+        vm.setSoundsEnabled(false)
+        vm.setHapticsEnabled(false)
+        awaitUntil { !vm.soundsEnabled.value && !vm.hapticsEnabled.value && !rule.app.sounds.enabled && !rule.app.haptics.enabled }
+
+        vm.setSoundsEnabled(true)
+        vm.setHapticsEnabled(true)
+        awaitUntil { vm.soundsEnabled.value && vm.hapticsEnabled.value && rule.app.sounds.enabled && rule.app.haptics.enabled }
     }
 
     @Test

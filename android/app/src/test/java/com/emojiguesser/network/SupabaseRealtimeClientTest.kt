@@ -235,22 +235,26 @@ class SupabaseRealtimeClientTest {
     }
 
     @Test
-    fun `a late close from the previous game's socket opens a second socket for the new game`() = runTest(UnconfinedTestDispatcher()) {
+    fun `callbacks from the previous game's socket leave the live one alone`() = runTest(UnconfinedTestDispatcher()) {
         val client = realtime()
+        val received = mutableListOf<ServerMessage>()
+        backgroundScope.launch { client.messages.toList(received) }
         client.subscribe("G1")
         val old = sockets.last
-        old.open()
         client.subscribe("G2")
         val current = sockets.last
         current.open()
 
+        old.open()
+        old.receive(broadcast("""{"action":"newEmoji","emoji":"🐘"}"""))
         old.closed(1000, "client unsubscribed")
-        advance(2_000)
-        sockets.last.open()
+        old.fail()
+        advance(30_000)
 
-        // Bug: listener callbacks never check which socket fired, so the old close reopens G2 next to the live one.
-        assertEquals(3, sockets.sockets.size)
+        assertEquals(2, sockets.sockets.size)
+        assertTrue(old.sent.isEmpty())
+        assertTrue(received.isEmpty())
         assertNull(current.closeCode)
-        assertEquals("realtime:game:G2", sockets.last.sentJson.single().str("topic"))
+        assertEquals(listOf("phx_join", "heartbeat"), current.sentJson.map { it.str("event") })
     }
 }

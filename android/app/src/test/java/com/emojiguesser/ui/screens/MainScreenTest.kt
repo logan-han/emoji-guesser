@@ -5,6 +5,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.emojiguesser.data.Game
 import com.emojiguesser.network.ConnectionState
@@ -50,8 +51,11 @@ class MainScreenTest {
                     isDescriber = false,
                     isOwner = true,
                     currentDescriber = null,
+                    currentSessionId = "s-p1",
                     deepLinkGameId = null,
                     updateDownloaded = updateDownloaded,
+                    soundsEnabled = true,
+                    hapticsEnabled = false,
                     onPlayerNameChange = { calls += "name:$it" },
                     onCreateGame = { time, rounds, isPublic -> calls += "create:$time:$rounds:$isPublic" },
                     onJoinGame = { calls += "join:$it" },
@@ -64,7 +68,9 @@ class MainScreenTest {
                     onRestartGame = { calls += "restart:$it" },
                     onLeaveGame = { calls += "leave" },
                     onClearError = { calls += "clearError" },
-                    onInstallUpdate = { calls += "install" }
+                    onInstallUpdate = { calls += "install" },
+                    onSoundsChange = { calls += "sounds:$it" },
+                    onHapticsChange = { calls += "haptics:$it" }
                 )
             }
         }
@@ -103,8 +109,10 @@ class MainScreenTest {
         render()
 
         compose.onNodeWithText("Create game").performClick()
+        compose.onNodeWithContentDescription("Sounds").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("Haptics").performClick()
 
-        assertEquals(listOf("list", "create:120:2:true"), calls)
+        assertEquals(listOf("list", "create:120:2:true", "sounds:false", "haptics:true"), calls)
         compose.onNodeWithText("Dismiss").assertDoesNotExist()
         compose.onNodeWithText("Update ready to install").assertDoesNotExist()
     }
@@ -121,6 +129,7 @@ class MainScreenTest {
     fun `waiting game shows the waiting room`() {
         render(currentGame = game())
 
+        compose.onNodeWithText("👑 Host · You").assertExists()
         compose.onNodeWithText("Start game →").performClick()
 
         assertEquals(listOf("start:120:3"), calls)

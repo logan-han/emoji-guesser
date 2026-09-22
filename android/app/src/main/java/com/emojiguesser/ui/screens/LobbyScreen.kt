@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -40,6 +41,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
@@ -67,10 +71,14 @@ fun LobbyScreen(
     publicGames: List<Game>,
     deepLinkGameId: String?,
     connectionState: ConnectionState,
+    soundsEnabled: Boolean,
+    hapticsEnabled: Boolean,
     onPlayerNameChange: (String) -> Unit,
     onCreateGame: (Int, Int, Boolean) -> Unit,
     onJoinGame: (String) -> Unit,
-    onListPublicGames: () -> Unit
+    onListPublicGames: () -> Unit,
+    onSoundsChange: (Boolean) -> Unit,
+    onHapticsChange: (Boolean) -> Unit
 ) {
     val palette = LocalConfetti.current
     var joinGameId by remember { mutableStateOf(deepLinkGameId ?: "") }
@@ -145,7 +153,7 @@ fun LobbyScreen(
                         Text(stringResource(R.string.lobby_public_game), style = MaterialTheme.typography.titleLarge, color = palette.ink)
                         Text(stringResource(R.string.lobby_public_desc), style = MaterialTheme.typography.bodyMedium, color = palette.inkSoft)
                     }
-                    StampToggle(checked = isPublicGame, onCheckedChange = { isPublicGame = it })
+                    StampToggle(checked = isPublicGame, label = stringResource(R.string.lobby_public_game), onCheckedChange = { isPublicGame = it })
                 }
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(stringResource(R.string.lobby_round_time), style = MaterialTheme.typography.labelMedium, color = palette.inkSoft)
@@ -232,12 +240,29 @@ fun LobbyScreen(
             }
         }
 
+        Spacer(Modifier.height(10.dp))
+
+        StampCard(modifier = Modifier.fillMaxWidth(), contentPadding = 14.dp) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SettingRow(stringResource(R.string.settings_sounds), soundsEnabled, onSoundsChange)
+                SettingRow(stringResource(R.string.settings_haptics), hapticsEnabled, onHapticsChange)
+            }
+        }
+
         Spacer(Modifier.height(12.dp))
     }
 }
 
 @Composable
-private fun StampToggle(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+private fun SettingRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(label, style = MaterialTheme.typography.titleLarge, color = LocalConfetti.current.ink, modifier = Modifier.weight(1f))
+        StampToggle(checked = checked, label = label, onCheckedChange = onCheckedChange)
+    }
+}
+
+@Composable
+private fun StampToggle(checked: Boolean, label: String, onCheckedChange: (Boolean) -> Unit) {
     val palette = LocalConfetti.current
     val knobOffset by animateDpAsState(if (checked) 20.dp else 2.dp, label = "toggle")
     Box(
@@ -245,7 +270,8 @@ private fun StampToggle(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
             .size(width = 44.dp, height = 24.dp)
             .clip(RoundedCornerShape(12.dp))
             .background(if (checked) Sage else palette.bg2)
-            .clickable { onCheckedChange(!checked) }
+            .toggleable(value = checked, role = Role.Switch, onValueChange = onCheckedChange)
+            .semantics { contentDescription = label }
             .padding(2.dp)
     ) {
         Box(

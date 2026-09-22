@@ -57,6 +57,7 @@ import com.emojiguesser.ui.theme.Teal
 fun WaitingRoomScreen(
     game: Game,
     isOwner: Boolean,
+    currentSessionId: String?,
     onStartGame: (Int, Int) -> Unit,
     onLeaveGame: () -> Unit
 ) {
@@ -115,7 +116,8 @@ fun WaitingRoomScreen(
                         Text("📋 ${stringResource(R.string.waiting_copy_code)}")
                     }
                     StampButton(
-                        onClick = { clipboardManager.setText(AnnotatedString("https://emoji-guesser.app/${game.gameId}")) },
+                        // Same link the web client shares; the manifest also routes it to the app.
+                        onClick = { clipboardManager.setText(AnnotatedString("https://emoji.han.life/?gameId=${game.gameId}")) },
                         style = StampButtonStyle.Secondary,
                         contentPadding = PaddingValues(horizontal = 10.dp, vertical = 9.dp),
                         modifier = Modifier.weight(1f)
@@ -144,7 +146,7 @@ fun WaitingRoomScreen(
                             PlayerRow(
                                 player = player,
                                 isOwner = player.connectionId == game.ownerId,
-                                isYou = isOwner && player.connectionId == game.ownerId
+                                isYou = player.sessionId != null && player.sessionId == currentSessionId
                             )
                         }
                     }
@@ -206,7 +208,8 @@ private fun PlayerRow(player: Player, isOwner: Boolean, isYou: Boolean) {
         Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(player.name, style = MaterialTheme.typography.bodyLarge, color = palette.ink, fontWeight = FontWeight.SemiBold)
-            Text(if (isOwner) "👑 ${stringResource(R.string.waiting_host)}" else stringResource(R.string.waiting_ready), style = MaterialTheme.typography.bodyMedium, color = palette.inkSoft)
+            val role = if (isOwner) "👑 ${stringResource(R.string.waiting_host)}" else stringResource(R.string.waiting_ready)
+            Text(if (isYou) "$role · ${stringResource(R.string.waiting_you)}" else role, style = MaterialTheme.typography.bodyMedium, color = palette.inkSoft)
         }
         Box(
             modifier = Modifier

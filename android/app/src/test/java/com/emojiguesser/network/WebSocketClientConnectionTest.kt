@@ -209,18 +209,52 @@ class WebSocketClientConnectionTest {
     }
 
     @Test
-    fun `a user disconnect still reconnects once the close lands`() = runTest(UnconfinedTestDispatcher()) {
+    fun `a user disconnect does not reconnect when its close lands`() = runTest(UnconfinedTestDispatcher()) {
         val client = client()
         client.connect()
         sockets.last.open()
 
         client.disconnect()
         sockets.last.closed(1000, "User disconnected")
-        advance(1_000)
+        advance(60_000)
 
-        // Bug: disconnect() sets no intentional-close flag, so its own onClosed schedules a reconnect.
+        assertEquals(1, sockets.sockets.size)
+        assertEquals(ConnectionState.DISCONNECTED, client.connectionState.value)
+    }
+
+    @Test
+    fun `disconnect cancels a pending reconnect`() = runTest(UnconfinedTestDispatcher()) {
+        val client = client()
+        client.connect()
+        sockets.last.fail()
+
+        client.disconnect()
+        advance(60_000)
+
+        assertEquals(1, sockets.sockets.size)
+        assertEquals(ConnectionState.DISCONNECTED, client.connectionState.value)
+    }
+
+    @Test
+    fun `callbacks from a replaced socket leave the live connection alone`() = runTest(UnconfinedTestDispatcher()) {
+        val client = client()
+        val received = mutableListOf<ServerMessage>()
+        backgroundScope.launch { client.messages.toList(received) }
+        client.connect()
+        val old = sockets.last
+        old.fail()
+        advance(1_000)
+        sockets.last.open()
+
+        old.open()
+        old.receive("""{"action":"newEmoji","emoji":"🐘"}""")
+        old.closed(1006, "late")
+        old.fail()
+        advance(60_000)
+
+        assertEquals(ConnectionState.CONNECTED, client.connectionState.value)
         assertEquals(2, sockets.sockets.size)
-        assertEquals(ConnectionState.CONNECTING, client.connectionState.value)
+        assertTrue(received.isEmpty())
     }
 
     @Test

@@ -8,10 +8,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performImeAction
@@ -39,13 +42,17 @@ class LobbyScreenTest {
     private val created = mutableListOf<Triple<Int, Int, Boolean>>()
     private val joined = mutableListOf<String>()
     private val names = mutableListOf<String>()
+    private val soundChanges = mutableListOf<Boolean>()
+    private val hapticChanges = mutableListOf<Boolean>()
     private var listCalls = 0
 
     private fun render(
         initialName: String = "Alice",
         publicGames: List<Game> = emptyList(),
         deepLinkGameId: String? = null,
-        connectionState: ConnectionState = ConnectionState.CONNECTED
+        connectionState: ConnectionState = ConnectionState.CONNECTED,
+        sounds: Boolean = true,
+        haptics: Boolean = true
     ) {
         compose.setContent {
             var name by remember { mutableStateOf(initialName) }
@@ -55,10 +62,14 @@ class LobbyScreenTest {
                     publicGames = publicGames,
                     deepLinkGameId = deepLinkGameId,
                     connectionState = connectionState,
+                    soundsEnabled = sounds,
+                    hapticsEnabled = haptics,
                     onPlayerNameChange = { names += it; name = it },
                     onCreateGame = { time, rounds, isPublic -> created += Triple(time, rounds, isPublic) },
                     onJoinGame = { joined += it },
-                    onListPublicGames = { listCalls++ }
+                    onListPublicGames = { listCalls++ },
+                    onSoundsChange = { soundChanges += it },
+                    onHapticsChange = { hapticChanges += it }
                 )
             }
         }
@@ -94,11 +105,23 @@ class LobbyScreenTest {
 
         compose.onNodeWithText("60").performClick()
         compose.onNodeWithText("4").performClick()
-        compose.onNode(textlessClickable).performClick()
+        compose.onNodeWithContentDescription("Public game").assertIsOn().performClick().assertIsOff()
         compose.drawFrame()
         compose.onNodeWithText("Create game").performClick()
 
         assertEquals(listOf(Triple(60, 4, false)), created)
+    }
+
+    @Test
+    fun `sound and haptic toggles show the saved settings and report changes`() {
+        render(sounds = true, haptics = false)
+        compose.drawFrame()
+
+        compose.onNodeWithContentDescription("Sounds").performScrollTo().assertIsOn().performClick()
+        compose.onNodeWithContentDescription("Haptics").assertIsOff().performClick()
+
+        assertEquals(listOf(false), soundChanges)
+        assertEquals(listOf(true), hapticChanges)
     }
 
     @Test

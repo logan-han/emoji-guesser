@@ -39,6 +39,7 @@
     <string name="waiting_players_capacity">%1$d / 8</string>
     <string name="waiting_host">Host</string>
     <string name="waiting_ready">Ready</string>
+    <string name="waiting_you">You</string>
     <string name="waiting_joining">Waiting for the host to start the game</string>
     <string name="waiting_empty_slot">Waiting for player…</string>
     <string name="waiting_need_more_players">Need at least 2 players to start</string>
@@ -86,7 +87,7 @@
     <string name="conn_connecting">Connecting…</string>
     <string name="conn_connecting_title">Connecting</string>
     <string name="conn_warming_server">We\'re warming up the server</string>
-    <string name="conn_warming_prefix">We\'re warming up </string>
+    <string name="conn_warming_prefix">"We\'re warming up "</string>
     <string name="conn_warming_italic">the server</string>
     <string name="conn_tip">Tip: short emoji clues are usually easier to guess.</string>
     <string name="conn_cancel">Cancel</string>
@@ -96,7 +97,7 @@
     <string name="conn_update_ready">Update ready to install</string>
     <string name="error_title">Something went wrong</string>
     <string name="error_room_gone">That game disappeared</string>
-    <string name="error_room_gone_prefix">That game </string>
+    <string name="error_room_gone_prefix">"That game "</string>
     <string name="error_room_gone_italic">disappeared</string>
     <string name="error_try_again">Try again</string>
     <string name="error_back_to_lobby">Back to lobby</string>

@@ -29,12 +29,13 @@ class WaitingRoomScreenTest {
     private val starts = mutableListOf<Pair<Int, Int>>()
     private var leaves = 0
 
-    private fun render(game: Game = game(), isOwner: Boolean = true) {
+    private fun render(game: Game = game(), isOwner: Boolean = true, currentSessionId: String? = "s-p1") {
         compose.setContent {
             EmojiGuesserTheme {
                 WaitingRoomScreen(
                     game = game,
                     isOwner = isOwner,
+                    currentSessionId = currentSessionId,
                     onStartGame = { time, rounds -> starts += time to rounds },
                     onLeaveGame = { leaves++ }
                 )
@@ -54,7 +55,8 @@ class WaitingRoomScreenTest {
         compose.onNodeWithText("Private").assertExists()
         compose.onNodeWithText("Players (2)").assertExists()
         compose.onNodeWithText("2 / 8").assertExists()
-        compose.onNodeWithText("👑 Host").assertExists()
+        compose.onNodeWithText("👑 Host · You").assertExists()
+        compose.onNodeWithText("Ready · You").assertDoesNotExist()
         compose.onAllNodesWithText("Waiting for player…").assertCountEquals(6)
         compose.onNodeWithText("Round time").assertExists()
     }
@@ -66,6 +68,14 @@ class WaitingRoomScreenTest {
     }
 
     @Test
+    fun `nobody is marked as you without a session id`() {
+        render(game(players = listOf(player("p1", "Alice"), player("p2", "Bob").copy(sessionId = null))), currentSessionId = null)
+
+        compose.onNodeWithText("👑 Host").assertExists()
+        compose.onNodeWithText("· You", substring = true).assertDoesNotExist()
+    }
+
+    @Test
     fun `copy code and share link write to the clipboard`() {
         render()
 
@@ -73,8 +83,7 @@ class WaitingRoomScreenTest {
         assertEquals("ABC123", clipboardText())
 
         compose.onNodeWithText("↗ Share link").performClick()
-        // Pins current behaviour: neither the manifest deep link (emoji.han.life/game/) nor the web ?gameId= link.
-        assertEquals("https://emoji-guesser.app/ABC123", clipboardText())
+        assertEquals("https://emoji.han.life/?gameId=ABC123", clipboardText())
     }
 
     @Test
@@ -119,13 +128,14 @@ class WaitingRoomScreenTest {
 
     @Test
     fun `guests wait for the host without room settings`() {
-        render(isOwner = false)
+        render(isOwner = false, currentSessionId = "s-p2")
         compose.drawFrame()
 
         compose.onNodeWithText("Waiting for the host to start the game").assertIsNotEnabled().performClick()
         compose.onNodeWithText("Start game →").assertDoesNotExist()
         compose.onNodeWithText("Round time").assertDoesNotExist()
         compose.onNodeWithText("👑 Host").assertExists()
+        compose.onNodeWithText("Ready · You").assertExists()
         assertEquals(emptyList<Pair<Int, Int>>(), starts)
     }
 

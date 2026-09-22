@@ -41,8 +41,11 @@ fun MainScreen(
     isDescriber: Boolean,
     isOwner: Boolean,
     currentDescriber: Player?,
+    currentSessionId: String?,
     deepLinkGameId: String?,
     updateDownloaded: Boolean,
+    soundsEnabled: Boolean,
+    hapticsEnabled: Boolean,
     onPlayerNameChange: (String) -> Unit,
     onCreateGame: (Int, Int, Boolean) -> Unit,
     onJoinGame: (String) -> Unit,
@@ -55,7 +58,9 @@ fun MainScreen(
     onRestartGame: (Int) -> Unit,
     onLeaveGame: () -> Unit,
     onClearError: () -> Unit,
-    onInstallUpdate: () -> Unit
+    onInstallUpdate: () -> Unit,
+    onSoundsChange: (Boolean) -> Unit,
+    onHapticsChange: (Boolean) -> Unit
 ) {
     val palette = LocalConfetti.current
 
@@ -79,16 +84,21 @@ fun MainScreen(
                     publicGames = publicGames,
                     deepLinkGameId = deepLinkGameId,
                     connectionState = connectionState,
+                    soundsEnabled = soundsEnabled,
+                    hapticsEnabled = hapticsEnabled,
                     onPlayerNameChange = onPlayerNameChange,
                     onCreateGame = onCreateGame,
                     onJoinGame = onJoinGame,
-                    onListPublicGames = onListPublicGames
+                    onListPublicGames = onListPublicGames,
+                    onSoundsChange = onSoundsChange,
+                    onHapticsChange = onHapticsChange
                 )
             }
             else -> when (currentGame.phase()) {
                 GamePhase.Waiting -> WaitingRoomScreen(
                     game = currentGame,
                     isOwner = isOwner,
+                    currentSessionId = currentSessionId,
                     onStartGame = onStartGame,
                     onLeaveGame = onLeaveGame
                 )

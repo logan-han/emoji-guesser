@@ -70,8 +70,9 @@ class MainActivityTest {
         return ActivityScenario.launch<MainActivity>(intent).also { compose.waitForIdle() }
     }
 
-    private fun deepLink(gameId: String) =
-        Intent(Intent.ACTION_VIEW, Uri.parse("https://emoji.han.life/game/$gameId")).setClass(app, MainActivity::class.java)
+    private fun deepLink(gameId: String) = link("https://emoji.han.life/game/$gameId")
+
+    private fun link(url: String) = Intent(Intent.ACTION_VIEW, Uri.parse(url)).setClass(app, MainActivity::class.java)
 
     private fun savePlayerName(name: String) {
         app.getSharedPreferences("emoji_guesser", Context.MODE_PRIVATE).edit().putString("player_name", name).commit()
@@ -100,6 +101,16 @@ class MainActivityTest {
         val join = sockets.last.sentJson.single { it.getValue("action").jsonPrimitive.content == "joinGame" }
         assertEquals("ABC123", join.getValue("gameId").jsonPrimitive.content)
         assertEquals("Ann", join.getValue("playerName").jsonPrimitive.content)
+    }
+
+    @Test
+    fun `the shared web link joins the game too`() {
+        savePlayerName("Ann")
+
+        launch(link("https://emoji.han.life/?gameId=XYZ789"))
+
+        val join = sockets.last.sentJson.single { it.getValue("action").jsonPrimitive.content == "joinGame" }
+        assertEquals("XYZ789", join.getValue("gameId").jsonPrimitive.content)
     }
 
     @Test

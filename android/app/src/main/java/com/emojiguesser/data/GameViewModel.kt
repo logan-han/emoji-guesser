@@ -10,8 +10,10 @@ import com.emojiguesser.network.ConnectionState
 import com.emojiguesser.network.SupabaseRealtimeClient
 import com.emojiguesser.network.WebSocketClient
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -68,6 +70,11 @@ class GameViewModel internal constructor(
     private val _lastGuesserName = MutableStateFlow<String?>(null)
     val lastGuesserName: StateFlow<String?> = _lastGuesserName.asStateFlow()
 
+    val soundsEnabled: StateFlow<Boolean> =
+        app.settings.soundsEnabled.stateIn(viewModelScope, SharingStarted.Eagerly, true)
+    val hapticsEnabled: StateFlow<Boolean> =
+        app.settings.hapticsEnabled.stateIn(viewModelScope, SharingStarted.Eagerly, true)
+
     init {
         viewModelScope.launch {
             webSocketClient.messages.collect { message ->
@@ -81,14 +88,26 @@ class GameViewModel internal constructor(
         }
     }
 
-    private fun updateGame(game: Game) {
+    /** Returns false for a late update to a game that already ended; a restart is the one way back. */
+    private fun updateGame(game: Game, isRestart: Boolean = false): Boolean {
         val current = _currentGame.value
-        if (current?.gameState == "ENDED" && game.gameState != "ENDED" && current.gameId == game.gameId) {
-            return
+        if (!isRestart && current?.gameState == "ENDED" && game.gameState != "ENDED" && current.gameId == game.gameId) {
+            return false
         }
         _currentGame.value = game
         webSocketClient.currentGameId = game.gameId
         realtimeClient.subscribe(game.gameId)
+        return true
+    }
+
+    private fun resetTurn() {
+        _emojis.value = emptyList()
+        _guesses.value = emptyList()
+        _wordOptions.value = emptyList()
+        _secretWord.value = null
+        _currentHint.value = null
+        _lastGuessedWord.value = null
+        _lastGuesserName.value = null
     }
 
     private fun handleServerMessage(message: ServerMessage) {
@@ -107,16 +126,15 @@ class GameViewModel internal constructor(
             "spectatorJoined" -> {
                 message.game?.let { game ->
                     val previousPlayerCount = _currentGame.value?.players?.size ?: 0
-                    updateGame(game)
-                    if (message.action == "nextTurn" || message.action == "gameStarted") {
-                        _emojis.value = emptyList()
-                        _guesses.value = emptyList()
-                        _lastGuessedWord.value = null
-                        _lastGuesserName.value = null
-                        if (message.action == "gameStarted") app.sounds.play(SoundEvent.GameStart)
-                    }
-                    if (message.action == "playerJoined" && game.players.size > previousPlayerCount) {
-                        app.sounds.play(SoundEvent.PlayerJoined)
+                    if (!updateGame(game, isRestart = message.action == "gameRestarted")) return
+                    when (message.action) {
+                        "gameStarted", "nextTurn", "gameRestarted" -> {
+                            resetTurn()
+                            if (message.action == "gameStarted") app.sounds.play(SoundEvent.GameStart)
+                        }
+                        "playerJoined" -> if (game.players.size > previousPlayerCount) {
+                            app.sounds.play(SoundEvent.PlayerJoined)
+                        }
                     }
                 }
             }
@@ -203,6 +221,14 @@ class GameViewModel internal constructor(
         prefs.edit().putString("player_name", name).apply()
     }
 
+    fun setSoundsEnabled(enabled: Boolean) {
+        viewModelScope.launch { app.settings.setSounds(enabled) }
+    }
+
+    fun setHapticsEnabled(enabled: Boolean) {
+        viewModelScope.launch { app.settings.setHaptics(enabled) }
+    }
+
     fun createGame(timeLimit: Int = 120, maxRounds: Int = 2, isPublic: Boolean = false) {
         webSocketClient.createGame(sessionId, _playerName.value, timeLimit, maxRounds, isPublic)
         app.sounds.play(SoundEvent.ButtonClick)
@@ -268,13 +294,7 @@ class GameViewModel internal constructor(
         webSocketClient.currentGameId = null
         realtimeClient.unsubscribe()
         _currentGame.value = null
-        _emojis.value = emptyList()
-        _guesses.value = emptyList()
-        _wordOptions.value = emptyList()
-        _secretWord.value = null
-        _currentHint.value = null
-        _lastGuessedWord.value = null
-        _lastGuesserName.value = null
+        resetTurn()
     }
 
     fun clearError() {

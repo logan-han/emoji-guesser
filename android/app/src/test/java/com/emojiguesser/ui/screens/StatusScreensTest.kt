@@ -23,8 +23,8 @@ class StatusScreensTest {
 
         compose.onNodeWithText("Joining room…").assertExists()
         compose.onNodeWithText("Connecting").assertExists()
-        // Bug: aapt strips the trailing space in conn_warming_prefix, so the words run together.
-        compose.onNodeWithText("We're warming upthe server").assertExists()
+        // conn_warming_prefix is quoted so aapt keeps its trailing space.
+        compose.onNodeWithText("We're warming up the server").assertExists()
         compose.onNodeWithText("💡 Tip: short emoji clues are usually easier to guess.").assertExists()
     }
 
@@ -35,8 +35,8 @@ class StatusScreensTest {
 
         compose.onNodeWithText("Connection failed.").assertExists()
         compose.onNodeWithText("Something went wrong").assertExists()
-        // Bug: aapt strips the trailing space in error_room_gone_prefix, so the words run together.
-        compose.onNodeWithText("That gamedisappeared").assertExists()
+        // error_room_gone_prefix is quoted so aapt keeps its trailing space.
+        compose.onNodeWithText("That game disappeared").assertExists()
         compose.onNodeWithText("Error · WS_4404 · Room not found").assertExists()
     }
 }

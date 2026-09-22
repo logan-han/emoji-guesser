@@ -34,8 +34,8 @@ class MainActivity : ComponentActivity() {
         updateController = AppUpdateController(this)
         updateController.checkForUpdate(updateFlowLauncher)
 
-        // Handle deep link
-        val deepLinkGameId = intent?.data?.lastPathSegment
+        // Game links: the shared https://emoji.han.life/?gameId=X, or /game/X
+        val deepLinkGameId = intent?.data?.let { it.getQueryParameter("gameId") ?: it.lastPathSegment }
 
         setContent {
             EmojiGuesserTheme {
@@ -69,6 +69,8 @@ class MainActivity : ComponentActivity() {
                     val lastGuessedWord by viewModel.lastGuessedWord.collectAsState()
                     val lastGuesserName by viewModel.lastGuesserName.collectAsState()
                     val updateDownloaded by updateController.updateDownloaded.collectAsState()
+                    val soundsEnabled by viewModel.soundsEnabled.collectAsState()
+                    val hapticsEnabled by viewModel.hapticsEnabled.collectAsState()
 
                     MainScreen(
                         currentGame = currentGame,
@@ -86,8 +88,11 @@ class MainActivity : ComponentActivity() {
                         isDescriber = viewModel.isCurrentPlayerDescriber(),
                         isOwner = viewModel.isGameOwner(),
                         currentDescriber = viewModel.getCurrentDescriber(),
+                        currentSessionId = viewModel.sessionId,
                         deepLinkGameId = deepLinkGameId,
                         updateDownloaded = updateDownloaded,
+                        soundsEnabled = soundsEnabled,
+                        hapticsEnabled = hapticsEnabled,
                         onPlayerNameChange = viewModel::setPlayerName,
                         onCreateGame = viewModel::createGame,
                         onJoinGame = viewModel::joinGame,
@@ -100,7 +105,9 @@ class MainActivity : ComponentActivity() {
                         onRestartGame = viewModel::restartGame,
                         onLeaveGame = viewModel::leaveGame,
                         onClearError = viewModel::clearError,
-                        onInstallUpdate = updateController::completeUpdate
+                        onInstallUpdate = updateController::completeUpdate,
+                        onSoundsChange = viewModel::setSoundsEnabled,
+                        onHapticsChange = viewModel::setHapticsEnabled
                     )
                 }
             }

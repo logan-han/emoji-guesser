@@ -53,7 +53,8 @@ class SupabaseRealtimeClient(
 
     private val refCounter = AtomicLong(1)
 
-    private var webSocket: WebSocket? = null
+    // Written on the caller's thread, read from OkHttp's callback threads.
+    @Volatile private var webSocket: WebSocket? = null
     private var heartbeatJob: Job? = null
     private var reconnectJob: Job? = null
     private var currentGameId: String? = null
@@ -100,13 +101,14 @@ class SupabaseRealtimeClient(
         val request = Request.Builder().url(url).build()
         webSocket = socketFactory.newWebSocket(request, object : WebSocketListener() {
             override fun onOpen(webSocket: WebSocket, response: Response) {
+                if (!isCurrent(webSocket)) return
                 Logger.d(TAG, "Realtime WS open for game:$gameId")
                 joinChannel(webSocket, gameId)
                 startHeartbeat(webSocket)
             }
 
             override fun onMessage(webSocket: WebSocket, text: String) {
-                handleIncoming(text)
+                if (isCurrent(webSocket)) handleIncoming(text)
             }
 
             override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
@@ -115,17 +117,22 @@ class SupabaseRealtimeClient(
 
             override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                 Logger.d(TAG, "Realtime WS closed: $code $reason")
+                if (!isCurrent(webSocket)) return
                 stopHeartbeat()
                 scheduleReconnectIfNeeded()
             }
 
             override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
                 Logger.e(TAG, "Realtime WS failure", t)
+                if (!isCurrent(webSocket)) return
                 stopHeartbeat()
                 scheduleReconnectIfNeeded()
             }
         })
     }
+
+    // A socket from a previous game or subscription must not touch the live one.
+    private fun isCurrent(socket: WebSocket) = socket === webSocket
 
     private fun joinChannel(ws: WebSocket, gameId: String) {
         val msg = buildJsonObject {
