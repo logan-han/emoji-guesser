@@ -4,7 +4,7 @@ import com.emojiguesser.data.Game
 import com.emojiguesser.data.GuessEntry
 import com.emojiguesser.data.Player
 import com.emojiguesser.data.ServerMessage
-import com.emojiguesser.data.WebSocketMessage
+import com.emojiguesser.data.ClientMessage
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.junit.Assert.*
@@ -61,8 +61,8 @@ class ModelsTest {
     }
 
     @Test
-    fun `WebSocketMessage createGame action`() {
-        val message = WebSocketMessage(
+    fun `ClientMessage createGame action`() {
+        val message = ClientMessage(
             action = "createGame",
             sessionId = "session123",
             playerName = "MyPlayer",
@@ -79,8 +79,8 @@ class ModelsTest {
     }
 
     @Test
-    fun `WebSocketMessage joinGame action`() {
-        val message = WebSocketMessage(
+    fun `ClientMessage joinGame action`() {
+        val message = ClientMessage(
             action = "joinGame",
             gameId = "GAME01",
             sessionId = "session456",
@@ -93,8 +93,8 @@ class ModelsTest {
     }
 
     @Test
-    fun `WebSocketMessage submitEmoji action`() {
-        val message = WebSocketMessage(
+    fun `ClientMessage submitEmoji action`() {
+        val message = ClientMessage(
             action = "submitEmoji",
             gameId = "GAME01",
             emoji = "🎉"
@@ -106,8 +106,8 @@ class ModelsTest {
     }
 
     @Test
-    fun `WebSocketMessage submitGuess action`() {
-        val message = WebSocketMessage(
+    fun `ClientMessage submitGuess action`() {
+        val message = ClientMessage(
             action = "submitGuess",
             gameId = "GAME01",
             guess = "elephant"

@@ -15,7 +15,7 @@
 </head>
 <body>
 <h1>Emoji Guesser Privacy Policy</h1>
-<p class="meta">Last updated: 13 May 2026</p>
+<p class="meta">Last updated: 23 September 2026</p>
 
 <p>Emoji Guesser is a real-time multiplayer game. We have designed it to collect as little information as possible.</p>
 
@@ -33,13 +33,13 @@
 </ul>
 
 <h2>How data is transmitted</h2>
-<p>All in-game messages are sent over secure WebSocket connections (WSS) to our backend. Display names and emoji selections are broadcast to other players in the same lobby in real time so the game can function. Once a game ends, the live state is discarded; we do not retain message history.</p>
+<p>All in-game messages are sent over encrypted HTTPS connections to our game server. Display names and emoji selections are broadcast to other players in the same lobby in real time so the game can function. Once a game ends, the live state is discarded; we do not retain message history.</p>
 
 <h2>Data retention</h2>
-<p>Active game state is held in our database only while the game is in progress and is automatically cleaned up shortly after the game ends. The session UUID lives on your device and can be cleared by clearing app data or uninstalling.</p>
+<p>Active game state is held in our database only while the game is in progress and is automatically deleted shortly after the game ends, within two hours of the last move at most. The session UUID lives on your device and can be cleared by clearing app data or uninstalling.</p>
 
 <h2>Third parties</h2>
-<p>Real-time game synchronisation is provided by Supabase. Backend functions run on AWS Lambda behind API Gateway. We share only the data necessary to run a game session with these providers and they do not use it for their own purposes.</p>
+<p>The game server runs on Vercel, and game state is kept in a Neon Postgres database, both hosted in Sydney, Australia. We share only the data necessary to run a game session with these providers and they do not use it for their own purposes.</p>
 
 <h2>Children</h2>
 <p>Emoji Guesser does not knowingly collect data from children under 13. The app contains no chat freeform and no purchases.</p>

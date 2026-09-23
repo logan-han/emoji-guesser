@@ -1,60 +1,20 @@
 import { test, expect, Page } from '@playwright/test';
 
 /**
- * E2E tests for game flows using mock WebSocket.
- * These tests verify the UI behavior without requiring a real backend.
+ * E2E tests for game flows against a mocked game API.
+ * These tests verify the UI behaviour without a real backend; multiplayer.spec.ts plays a real game.
  */
 
-// Helper to inject mock WebSocket responses into the page
-async function injectMockWebSocket(page: Page, responses: Record<string, any>) {
-  await page.addInitScript((responsesJson) => {
-    const responses = JSON.parse(responsesJson);
-
-    class MockWebSocket {
-      onopen: ((event: Event) => void) | null = null;
-      onmessage: ((event: MessageEvent) => void) | null = null;
-      onclose: ((event: CloseEvent) => void) | null = null;
-      onerror: ((event: Event) => void) | null = null;
-      readyState = 1; // WebSocket.OPEN
-      url = '';
-
-      constructor(url: string) {
-        this.url = url;
-        setTimeout(() => {
-          if (this.onopen) {
-            this.onopen(new Event('open'));
-          }
-          // Send connected message
-          if (this.onmessage) {
-            this.onmessage(new MessageEvent('message', {
-              data: JSON.stringify({ action: 'connected', connectionId: 'test-conn-123' })
-            }));
-          }
-        }, 100);
-      }
-
-      send(data: string) {
-        const message = JSON.parse(data);
-        const action = message.action;
-
-        if (responses[action] && this.onmessage) {
-          setTimeout(() => {
-            this.onmessage!(new MessageEvent('message', {
-              data: JSON.stringify(responses[action])
-            }));
-          }, 50);
-        }
-      }
-
-      close() {
-        if (this.onclose) {
-          this.onclose(new CloseEvent('close'));
-        }
-      }
-    }
-
-    (window as any).WebSocket = MockWebSocket;
-  }, JSON.stringify(responses));
+// Answer each action with canned messages; no event stream is ever opened.
+async function mockApi(page: Page, responses: Record<string, any | any[]>) {
+  const replies = { hello: { action: 'connected', connectionId: 'test-conn-123' }, ...responses };
+  await page.route('**/api/action', async (route) => {
+    const { action } = route.request().postDataJSON();
+    const reply = replies[action];
+    const messages = reply === undefined ? [] : Array.isArray(reply) ? reply : [reply];
+    await route.fulfill({ json: { messages } });
+  });
+  await page.route('**/api/events**', (route) => route.fulfill({ status: 404, json: { error: 'no such game' } }));
 }
 
 async function expectConnected(page: Page) {
@@ -69,7 +29,7 @@ test.beforeEach(async ({ page }) => {
 
 test.describe('Game Creation Flow', () => {
   test('should create a new game and show lobby', async ({ page }) => {
-    await injectMockWebSocket(page, {
+    await mockApi(page, {
       createGame: {
         action: 'gameCreated',
         game: {
@@ -98,7 +58,7 @@ test.describe('Game Creation Flow', () => {
   });
 
   test('should show game settings for owner', async ({ page }) => {
-    await injectMockWebSocket(page, {
+    await mockApi(page, {
       createGame: {
         action: 'gameCreated',
         game: {
@@ -125,7 +85,7 @@ test.describe('Game Creation Flow', () => {
 
 test.describe('Game Lobby', () => {
   test('should display player list', async ({ page }) => {
-    await injectMockWebSocket(page, {
+    await mockApi(page, {
       createGame: {
         action: 'gameCreated',
         game: {
@@ -152,7 +112,7 @@ test.describe('Game Lobby', () => {
     // Grant clipboard permissions
     await context.grantPermissions(['clipboard-read', 'clipboard-write']);
 
-    await injectMockWebSocket(page, {
+    await mockApi(page, {
       createGame: {
         action: 'gameCreated',
         game: {
@@ -178,7 +138,7 @@ test.describe('Game Lobby', () => {
   });
 
   test('should allow editing player name', async ({ page }) => {
-    await injectMockWebSocket(page, {
+    await mockApi(page, {
       createGame: {
         action: 'gameCreated',
         game: {
@@ -216,7 +176,7 @@ test.describe('Game Lobby', () => {
 
 test.describe('Game In Progress', () => {
   test('should display game in progress view', async ({ page }) => {
-    await injectMockWebSocket(page, {
+    await mockApi(page, {
       createGame: {
         action: 'gameStarted',
         game: {
@@ -244,71 +204,25 @@ test.describe('Game In Progress', () => {
   });
 
   test('should show word choosing view for describer', async ({ page }) => {
-    // First inject game creation, then word choice
-    await page.addInitScript(() => {
-      class MockWebSocket {
-        onopen: ((event: Event) => void) | null = null;
-        onmessage: ((event: MessageEvent) => void) | null = null;
-        onclose: ((event: CloseEvent) => void) | null = null;
-        onerror: ((event: Event) => void) | null = null;
-        readyState = 1;
-        url = '';
-
-        constructor(url: string) {
-          this.url = url;
-          setTimeout(() => {
-            if (this.onopen) {
-              this.onopen(new Event('open'));
-            }
-            if (this.onmessage) {
-              this.onmessage(new MessageEvent('message', {
-                data: JSON.stringify({ action: 'connected', connectionId: 'test-conn-123' })
-              }));
-            }
-          }, 100);
-        }
-
-        send(data: string) {
-          const message = JSON.parse(data);
-
-          if (message.action === 'createGame') {
-            setTimeout(() => {
-              // First send game started
-              this.onmessage!(new MessageEvent('message', {
-                data: JSON.stringify({
-                  action: 'gameStarted',
-                  game: {
-                    gameId: 'ABC123',
-                    gameState: 'IN_PROGRESS',
-                    players: [
-                      { name: 'Player 1', connectionId: 'test-conn-123', score: 0 },
-                      { name: 'Player 2', connectionId: 'other-conn', score: 0 }
-                    ],
-                    ownerId: 'test-conn-123',
-                    currentRound: 1,
-                    currentDescriberIndex: 0,
-                    turnState: 'CHOOSING_WORD'
-                  }
-                })
-              }));
-
-              // Then send choose word
-              setTimeout(() => {
-                this.onmessage!(new MessageEvent('message', {
-                  data: JSON.stringify({
-                    action: 'chooseWord',
-                    wordOptions: ['elephant', 'pizza', 'bicycle']
-                  })
-                }));
-              }, 50);
-            }, 50);
+    await mockApi(page, {
+      createGame: [
+        {
+          action: 'gameStarted',
+          game: {
+            gameId: 'ABC123',
+            gameState: 'IN_PROGRESS',
+            players: [
+              { name: 'Player 1', connectionId: 'test-conn-123', score: 0 },
+              { name: 'Player 2', connectionId: 'other-conn', score: 0 }
+            ],
+            ownerId: 'test-conn-123',
+            currentRound: 1,
+            currentDescriberIndex: 0,
+            turnState: 'CHOOSING_WORD'
           }
-        }
-
-        close() {}
-      }
-
-      (window as any).WebSocket = MockWebSocket;
+        },
+        { action: 'chooseWord', wordOptions: ['elephant', 'pizza', 'bicycle'] }
+      ]
     });
 
     await page.goto('/');
@@ -322,7 +236,7 @@ test.describe('Game In Progress', () => {
   });
 
   test('should show guess input for non-describer', async ({ page }) => {
-    await injectMockWebSocket(page, {
+    await mockApi(page, {
       createGame: {
         action: 'gameStarted',
         game: {
@@ -352,7 +266,7 @@ test.describe('Game In Progress', () => {
 
 test.describe('Game End', () => {
   test('should display game ended view with scores', async ({ page }) => {
-    await injectMockWebSocket(page, {
+    await mockApi(page, {
       createGame: {
         action: 'gameEnded',
         game: {
@@ -378,7 +292,7 @@ test.describe('Game End', () => {
   });
 
   test('should show play again and back to lobby buttons', async ({ page }) => {
-    await injectMockWebSocket(page, {
+    await mockApi(page, {
       createGame: {
         action: 'gameEnded',
         game: {
@@ -401,7 +315,7 @@ test.describe('Game End', () => {
   });
 
   test('should return to lobby when back button clicked', async ({ page }) => {
-    await injectMockWebSocket(page, {
+    await mockApi(page, {
       createGame: {
         action: 'gameEnded',
         game: {

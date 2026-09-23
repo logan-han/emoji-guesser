@@ -37,8 +37,9 @@ data class Game(
     val updatedAt: String? = null
 )
 
+/** The body of a POST to the server's /action endpoint. */
 @Serializable
-data class WebSocketMessage(
+data class ClientMessage(
     val action: String,
     val gameId: String? = null,
     val sessionId: String? = null,
@@ -68,6 +69,17 @@ data class ServerMessage(
     val guesserName: String? = null,
     val hint: String? = null
 )
+
+/** The server's answer to an action: this client's own messages, and where it stands in the game. */
+@Serializable
+data class ActionReply(
+    val messages: List<ServerMessage> = emptyList(),
+    val stream: StreamCursor? = null
+)
+
+/** Stream the game's events from [after]; null once the player is out of the game. */
+@Serializable
+data class StreamCursor(val gameId: String, val after: Int? = null)
 
 enum class GameState {
     WAITING,

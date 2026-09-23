@@ -21,6 +21,13 @@ export default defineConfig([
     languageOptions: { ecmaVersion: 2022, globals: { ...globals.browser, ...globals.vitest } },
   },
 
+  // The game server (Vercel Functions and the dev server) and its tests run in node.
+  {
+    files: ['server/**/*.ts', 'api/**/*.ts'],
+    extends: [js.configs.recommended, tseslint.configs.recommended],
+    languageOptions: { ecmaVersion: 2022, globals: { ...globals.node, ...globals.vitest } },
+  },
+
   // Config, build scripts and the Playwright suite run in node, not the browser.
   {
     files: ['*.{ts,mjs}', 'e2e/**/*.ts', 'scripts/**/*.{js,cjs}'],
@@ -42,7 +49,7 @@ export default defineConfig([
   // mock state a vi.mock factory closes over must be `var`: vitest hoists the
   // factory above the file, and a let/const would still be in its dead zone.
   {
-    files: ['**/*.test.{ts,tsx}', 'src/testUtils.tsx', 'src/setupTests.ts', 'e2e/**/*.ts'],
+    files: ['**/*.test.{ts,tsx}', 'src/testUtils.tsx', 'src/setupTests.ts', 'server/testing.ts', 'e2e/**/*.ts'],
     rules: { '@typescript-eslint/no-explicit-any': 'off', 'no-var': 'off' },
   },
 

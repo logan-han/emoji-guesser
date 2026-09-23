@@ -29,7 +29,7 @@ import com.emojiguesser.ui.theme.LocalConfetti
 @Composable
 fun ScoreStrip(
     players: List<Player>,
-    activeSessionId: String?,
+    activeConnectionId: String?,
     modifier: Modifier = Modifier
 ) {
     val shown = players.sortedByDescending { it.score }.take(4)
@@ -38,7 +38,7 @@ fun ScoreStrip(
         horizontalArrangement = Arrangement.spacedBy(6.dp)
     ) {
         shown.forEach { player ->
-            val active = player.sessionId != null && player.sessionId == activeSessionId
+            val active = player.connectionId == activeConnectionId
             val score by animateIntAsState(player.score, tween(320), label = "score-strip")
             ScorePill(
                 name = player.name,

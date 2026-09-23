@@ -17,14 +17,15 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.emojiguesser.data.GameViewModel
-import com.emojiguesser.network.SupabaseRealtimeClient
-import com.emojiguesser.network.WebSocketClient
-import com.emojiguesser.testing.FakeSocketFactory
+import com.emojiguesser.network.ConnectionState
+import com.emojiguesser.network.GameClient
+import com.emojiguesser.testing.FakeCallFactory
+import com.emojiguesser.testing.FakeEventSourceFactory
+import com.emojiguesser.testing.str
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.serialization.json.jsonPrimitive
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -37,14 +38,14 @@ class MainActivityTest {
     @get:Rule val compose = createEmptyComposeRule()
 
     private val app = ApplicationProvider.getApplicationContext<EmojiGuesserApp>()
-    private val sockets = FakeSocketFactory()
+    private val http = FakeCallFactory()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
+    private val client = GameClient("https://api.test/api", http, FakeEventSourceFactory(), scope)
     private var seeder: Application.ActivityLifecycleCallbacks? = null
 
     private val factory = object : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
-        override fun <T : ViewModel> create(modelClass: Class<T>): T =
-            GameViewModel(app, WebSocketClient(sockets, scope), SupabaseRealtimeClient("", "", sockets, scope)) as T
+        override fun <T : ViewModel> create(modelClass: Class<T>): T = GameViewModel(app, client) as T
     }
 
     @After
@@ -78,16 +79,16 @@ class MainActivityTest {
         app.getSharedPreferences("emoji_guesser", Context.MODE_PRIVATE).edit().putString("player_name", name).commit()
     }
 
-    private fun sentActions() = sockets.last.sentJson.map { it.getValue("action").jsonPrimitive.content }
+    private fun joins() = http.calls.map { it.json }.filter { it.str("action") == "joinGame" }
 
     @Test
-    fun `connects on launch and shows the lobby once the socket opens`() {
+    fun `says hello on launch and shows the lobby once the server answers`() {
         launch()
 
-        assertEquals(1, sockets.sockets.size)
+        assertEquals("hello", http.actions().first())
         compose.onNodeWithText("Connecting…").assertIsDisplayed()
 
-        sockets.last.open()
+        http.calls.first().reply()
 
         compose.onNodeWithText("Create a game").assertIsDisplayed()
     }
@@ -98,9 +99,9 @@ class MainActivityTest {
 
         launch(deepLink("ABC123"))
 
-        val join = sockets.last.sentJson.single { it.getValue("action").jsonPrimitive.content == "joinGame" }
-        assertEquals("ABC123", join.getValue("gameId").jsonPrimitive.content)
-        assertEquals("Ann", join.getValue("playerName").jsonPrimitive.content)
+        val join = joins().single()
+        assertEquals("ABC123", join.str("gameId"))
+        assertEquals("Ann", join.str("playerName"))
     }
 
     @Test
@@ -109,24 +110,23 @@ class MainActivityTest {
 
         launch(link("https://emoji.han.life/?gameId=XYZ789"))
 
-        val join = sockets.last.sentJson.single { it.getValue("action").jsonPrimitive.content == "joinGame" }
-        assertEquals("XYZ789", join.getValue("gameId").jsonPrimitive.content)
+        assertEquals("XYZ789", joins().single().str("gameId"))
     }
 
     @Test
     fun `a deep link waits in the lobby until the player has a name`() {
         launch(deepLink("ABC123"))
-        sockets.last.open()
+        http.calls.first().reply()
 
         compose.onNodeWithText("ABC123").performScrollTo().assertIsDisplayed()
-        assertTrue("joinGame" !in sentActions())
+        assertTrue(joins().isEmpty())
     }
 
     @Test
-    fun `closing the activity disconnects the socket`() {
+    fun `closing the activity disconnects`() {
         launch().close()
 
-        assertEquals(1000, sockets.last.closeCode)
-        assertEquals("User disconnected", sockets.last.closeReason)
+        assertTrue(http.calls.all { it.isCanceled() })
+        assertEquals(ConnectionState.DISCONNECTED, client.connectionState.value)
     }
 }

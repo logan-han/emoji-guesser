@@ -27,7 +27,7 @@ class ScoreStripTest {
             Player(connectionId = "c4", sessionId = "s4", name = "Dan", score = 30),
             Player(connectionId = "c5", sessionId = "s5", name = "Eve", score = 20)
         )
-        compose.setContent { EmojiGuesserTheme { ScoreStrip(players = players, activeSessionId = "s4") } }
+        compose.setContent { EmojiGuesserTheme { ScoreStrip(players = players, activeConnectionId = "c4") } }
 
         listOf("Ben" to "50", "Cat" to "40", "Dan" to "30", "Eve" to "20").forEach { (name, score) ->
             compose.onNodeWithText(name).assertIsDisplayed()

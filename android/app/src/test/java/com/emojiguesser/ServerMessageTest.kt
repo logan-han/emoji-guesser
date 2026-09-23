@@ -233,12 +233,31 @@ class ServerMessageTest {
     }
 
     @Test
-    fun `heartbeatAck round trip carries no extra payload`() {
-        val payload = """{"action":"heartbeatAck"}"""
-        val message = json.decodeFromString<ServerMessage>(payload)
-        assertEquals("heartbeatAck", message.action)
-        assertNull(message.game)
-        assertNull(message.message)
+    fun `gameUpdated carries each player's copy with only their own session id`() {
+        val payload = """
+            {
+                "action":"gameUpdated",
+                "eventId":"G1:7",
+                "game":{
+                    "gameId":"G1",
+                    "ownerId":"o1",
+                    "players":[
+                        {"connectionId":"o1","name":"Host","score":0,"joinedAt":"2026-09-23T00:00:00.000Z"},
+                        {"connectionId":"p2","sessionId":"s-me","name":"Me","score":0,"joinedAt":"2026-09-23T00:00:00.000Z"}
+                    ],
+                    "spectators":[],
+                    "gameState":"WAITING",
+                    "isPublic":true,
+                    "timeLimit":120,
+                    "maxRounds":2
+                }
+            }
+        """.trimIndent()
+        val game = json.decodeFromString<ServerMessage>(payload).game!!
+        assertNull(game.ownerSessionId)
+        assertEquals(listOf(null, "s-me"), game.players.map { it.sessionId })
+        assertEquals(emptyList<Any>(), game.spectators)
+        assertNull(game.secretWord)
     }
 
     @Test

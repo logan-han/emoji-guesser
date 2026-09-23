@@ -7,8 +7,7 @@ import androidx.lifecycle.viewModelScope
 import com.emojiguesser.EmojiGuesserApp
 import com.emojiguesser.audio.SoundEvent
 import com.emojiguesser.network.ConnectionState
-import com.emojiguesser.network.SupabaseRealtimeClient
-import com.emojiguesser.network.WebSocketClient
+import com.emojiguesser.network.GameClient
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -19,10 +18,9 @@ import java.util.UUID
 
 class GameViewModel internal constructor(
     application: Application,
-    private val webSocketClient: WebSocketClient,
-    private val realtimeClient: SupabaseRealtimeClient
+    private val client: GameClient
 ) : AndroidViewModel(application) {
-    constructor(application: Application) : this(application, WebSocketClient(), SupabaseRealtimeClient())
+    constructor(application: Application) : this(application, GameClient())
 
     private val prefs = application.getSharedPreferences("emoji_guesser", Context.MODE_PRIVATE)
     private val app get() = getApplication<EmojiGuesserApp>()
@@ -38,7 +36,7 @@ class GameViewModel internal constructor(
     private val _playerName = MutableStateFlow(prefs.getString("player_name", "") ?: "")
     val playerName: StateFlow<String> = _playerName.asStateFlow()
 
-    val connectionState: StateFlow<ConnectionState> = webSocketClient.connectionState
+    val connectionState: StateFlow<ConnectionState> = client.connectionState
 
     private val _currentGame = MutableStateFlow<Game?>(null)
     val currentGame: StateFlow<Game?> = _currentGame.asStateFlow()
@@ -77,12 +75,7 @@ class GameViewModel internal constructor(
 
     init {
         viewModelScope.launch {
-            webSocketClient.messages.collect { message ->
-                handleServerMessage(message)
-            }
-        }
-        viewModelScope.launch {
-            realtimeClient.messages.collect { message ->
+            client.messages.collect { message ->
                 handleServerMessage(message)
             }
         }
@@ -95,8 +88,6 @@ class GameViewModel internal constructor(
             return false
         }
         _currentGame.value = game
-        webSocketClient.currentGameId = game.gameId
-        realtimeClient.subscribe(game.gameId)
         return true
     }
 
@@ -120,10 +111,9 @@ class GameViewModel internal constructor(
         }
 
         when (message.action) {
-            "connected" -> { /* no-op */ }
             "gameCreated", "playerJoined", "gameStarted", "playerNameUpdated",
             "gameRestarted", "playerLeft", "nextTurn", "playerReconnected",
-            "spectatorJoined" -> {
+            "spectatorJoined", "gameUpdated" -> {
                 message.game?.let { game ->
                     val previousPlayerCount = _currentGame.value?.players?.size ?: 0
                     if (!updateGame(game, isRestart = message.action == "gameRestarted")) return
@@ -198,7 +188,6 @@ class GameViewModel internal constructor(
             "error" -> {
                 _errorMessage.value = message.message
             }
-            "heartbeatAck" -> { /* no-op */ }
         }
     }
 
@@ -207,13 +196,12 @@ class GameViewModel internal constructor(
     }
 
     fun connect() {
-        webSocketClient.sessionId = sessionId
-        webSocketClient.connect()
+        client.sessionId = sessionId
+        client.connect()
     }
 
     fun disconnect() {
-        realtimeClient.unsubscribe()
-        webSocketClient.disconnect()
+        client.disconnect()
     }
 
     fun setPlayerName(name: String) {
@@ -230,20 +218,20 @@ class GameViewModel internal constructor(
     }
 
     fun createGame(timeLimit: Int = 120, maxRounds: Int = 2, isPublic: Boolean = false) {
-        webSocketClient.createGame(sessionId, _playerName.value, timeLimit, maxRounds, isPublic)
+        client.createGame(sessionId, _playerName.value, timeLimit, maxRounds, isPublic)
         app.sounds.play(SoundEvent.ButtonClick)
         app.haptics.click()
     }
 
     fun joinGame(gameId: String) {
-        webSocketClient.joinGame(gameId, sessionId, _playerName.value)
+        client.joinGame(gameId, sessionId, _playerName.value)
         app.sounds.play(SoundEvent.ButtonClick)
         app.haptics.click()
     }
 
     fun startGame(timeLimit: Int = 120, maxRounds: Int = 2) {
         _currentGame.value?.let { game ->
-            webSocketClient.startGame(game.gameId, sessionId, timeLimit, maxRounds)
+            client.startGame(game.gameId, sessionId, timeLimit, maxRounds)
         }
         app.sounds.play(SoundEvent.ButtonClick)
         app.haptics.click()
@@ -251,7 +239,7 @@ class GameViewModel internal constructor(
 
     fun chooseWord(word: String) {
         _currentGame.value?.let { game ->
-            webSocketClient.chooseWord(game.gameId, word)
+            client.chooseWord(game.gameId, word)
         }
         app.sounds.play(SoundEvent.ButtonClick)
         app.haptics.click()
@@ -259,7 +247,7 @@ class GameViewModel internal constructor(
 
     fun submitEmoji(emoji: String) {
         _currentGame.value?.let { game ->
-            webSocketClient.submitEmoji(game.gameId, emoji)
+            client.submitEmoji(game.gameId, emoji)
         }
         app.haptics.click()
     }
@@ -273,26 +261,25 @@ class GameViewModel internal constructor(
 
     fun submitGuess(guess: String) {
         _currentGame.value?.let { game ->
-            webSocketClient.submitGuess(game.gameId, guess)
+            client.submitGuess(game.gameId, guess)
         }
         app.haptics.click()
     }
 
     fun listPublicGames() {
-        webSocketClient.listPublicGames()
+        client.listPublicGames()
     }
 
     fun restartGame(timeLimit: Int = 120) {
         _currentGame.value?.let { game ->
-            webSocketClient.restartGame(game.gameId, sessionId, timeLimit)
+            client.restartGame(game.gameId, sessionId, timeLimit)
         }
         app.sounds.play(SoundEvent.ButtonClick)
         app.haptics.click()
     }
 
     fun leaveGame() {
-        webSocketClient.currentGameId = null
-        realtimeClient.unsubscribe()
+        _currentGame.value?.let { client.leaveGame(it.gameId) }
         _currentGame.value = null
         resetTurn()
     }

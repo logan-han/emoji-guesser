@@ -75,6 +75,21 @@ describe('App - end-of-game, errors and restart', () => {
     await waitFor(() => {
       expect(screen.getByText('Create New Game')).toBeInTheDocument();
     });
+    // The server takes the player out, so a restart does not count them in.
+    expect(mockSend).toHaveBeenCalledWith(expect.stringContaining('"action":"leaveGame","gameId":"GAME123"'));
+  });
+
+  test('a silent game update refreshes the players on screen', async () => {
+    await renderAndConnect(App);
+    sendServerMessage(fixtures.gameCreated());
+    await waitFor(() => expect(screen.getByText('Share this')).toBeInTheDocument());
+
+    sendServerMessage({
+      action: 'gameUpdated',
+      game: { ...fixtures.gameCreated().game, players: [fixtures.player(), { name: 'Newcomer', connectionId: 'conn-2', score: 0 }] },
+    });
+
+    await waitFor(() => expect(screen.getByText('Newcomer')).toBeInTheDocument());
   });
 
   test('timeUp reveals the secret word with a Time\'s up banner', async () => {

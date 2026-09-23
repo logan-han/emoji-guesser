@@ -27,6 +27,7 @@ jobs:
         run: yarn install --frozen-lockfile
         working-directory: ./frontend
 
+      # The web app and the game server it deploys with (server/, api/) share one suite.
       - name: Run Frontend Tests
         run: yarn test:coverage
         working-directory: ./frontend
@@ -48,31 +49,6 @@ jobs:
         run: yarn lint
         working-directory: ./frontend
 
-      - name: Install Backend Dependencies
-        run: yarn install --frozen-lockfile
-        working-directory: ./backend
-
-      - name: Run Backend Tests
-        run: yarn test:coverage
-        working-directory: ./backend
-
-      - name: Upload backend coverage reports to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          files: backend/coverage/lcov.info
-          disable_search: true
-          flags: backend
-          name: backend-coverage
-
-      - name: Backend Type Check
-        run: yarn tsc --noEmit
-        working-directory: ./backend
-
-      - name: Backend Lint
-        run: yarn lint
-        working-directory: ./backend
-
       - name: Install Playwright Browsers
         run: npx playwright install --with-deps chromium
         working-directory: ./frontend
@@ -89,98 +65,9 @@ jobs:
           path: frontend/playwright-report/
           retention-days: 30
 
-  deploy-backend:
-    needs: test
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Use Node.js 24
-        uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ap-southeast-4
-
-      - name: Install Backend Dependencies
-        run: yarn install --frozen-lockfile
-        working-directory: ./backend
-
-      - name: Deploy Backend
-        env:
-          SERVERLESS_ACCESS_KEY: ${{ secrets.SERVERLESS_ACCESS_KEY }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        run: yarn sls deploy --stage prod
-        working-directory: ./backend
-
-      - name: Get WebSocket URL
-        env:
-          SERVERLESS_ACCESS_KEY: ${{ secrets.SERVERLESS_ACCESS_KEY }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
-        id: websocket-url
-        run: |
-          WS_URL=$(npx sls info --stage prod --json | jq -r '.info.endpoints[0]')
-          echo "Extracted WebSocket URL: $WS_URL"
-          echo "ws_url=$WS_URL" >> $GITHUB_OUTPUT
-        working-directory: ./backend
-
-    outputs:
-      websocket-url: ${{ steps.websocket-url.outputs.ws_url }}
-
-  deploy-frontend:
-    needs: [test, deploy-backend]
-    runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    permissions:
-      contents: read
-      id-token: write
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Use Node.js 24
-        uses: actions/setup-node@v6
-        with:
-          node-version: '24'
-
-      - name: Install Frontend Dependencies
-        run: yarn install --frozen-lockfile
-        working-directory: ./frontend
-
-      - name: Build Frontend
-        env:
-          VITE_WS_URL: ${{ needs.deploy-backend.outputs.websocket-url }}
-          VITE_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          VITE_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
-        run: yarn build
-        working-directory: ./frontend
-
-      - name: Configure AWS credentials (OIDC)
-        uses: aws-actions/configure-aws-credentials@v6
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ap-southeast-4
-
-      - name: Deploy to S3
-        run: |
-          aws s3 sync build/ s3://${{ secrets.S3_BUCKET_NAME }} --delete
-        working-directory: ./frontend
-
-      - name: Invalidate CloudFront
-        run: |
-          aws cloudfront create-invalidation --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} --paths "/*"
-
+  # The web app and its API deploy through Vercel's Git integration, main to production.
   deploy-android:
-    needs: [test, deploy-backend]
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -227,9 +114,6 @@ jobs:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          WS_URL: ${{ needs.deploy-backend.outputs.websocket-url }}
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
           VERSION_CODE: ${{ github.run_number }}
           VERSION_NAME: 1.0.${{ github.run_number }}
         run: ./gradlew bundleRelease --stacktrace

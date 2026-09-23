@@ -36,6 +36,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,6 +50,9 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.emojiguesser.R
 import com.emojiguesser.data.Game
 import com.emojiguesser.network.ConnectionState
@@ -86,10 +90,15 @@ fun LobbyScreen(
     var timeLimit by remember { mutableIntStateOf(120) }
     var maxRounds by remember { mutableIntStateOf(2) }
 
-    LaunchedEffect(Unit) {
-        while (true) {
-            onListPublicGames()
-            delay(5_000)
+    // Poll only while the app is on screen.
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val listPublicGames by rememberUpdatedState(onListPublicGames)
+    LaunchedEffect(lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                listPublicGames()
+                delay(5_000)
+            }
         }
     }
 

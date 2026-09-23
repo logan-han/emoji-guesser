@@ -8,7 +8,7 @@ object Logger {
         if (BuildConfig.DEBUG) Log.d(tag, message)
     }
 
-    fun e(tag: String, message: String, t: Throwable? = null) {
+    fun e(tag: String, message: String, t: Throwable?) {
         if (BuildConfig.DEBUG) Log.e(tag, message, t)
     }
 }

@@ -24,3 +24,6 @@ Object.defineProperty(global, 'IntersectionObserver', {
   configurable: true,
   value: MockIntersectionObserver,
 });
+
+// App talks to the server through GameSocket; the suites play the server through testUtils' mock of it.
+vi.mock('./gameSocket', async () => ({ GameSocket: (await import('./testUtils')).MockWebSocket }));

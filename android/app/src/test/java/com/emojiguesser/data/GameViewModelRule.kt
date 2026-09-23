@@ -8,9 +8,11 @@ import androidx.test.core.app.ApplicationProvider
 import com.emojiguesser.EmojiGuesserApp
 import com.emojiguesser.audio.SoundEvent
 import com.emojiguesser.audio.SoundManager
-import com.emojiguesser.network.SupabaseRealtimeClient
-import com.emojiguesser.network.WebSocketClient
-import com.emojiguesser.testing.FakeSocketFactory
+import com.emojiguesser.network.GameClient
+import com.emojiguesser.testing.EMPTY_REPLY
+import com.emojiguesser.testing.FakeCallFactory
+import com.emojiguesser.testing.FakeEventSourceFactory
+import com.emojiguesser.testing.str
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -25,19 +27,20 @@ import org.junit.rules.ExternalResource
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.shadows.ShadowVibrator
 
-/** A GameViewModel over fake sockets and a test Main dispatcher, cleared after each test. */
+/** A GameViewModel over a fake server and a test Main dispatcher, cleared after each test. */
 @OptIn(ExperimentalCoroutinesApi::class)
 class GameViewModelRule : ExternalResource() {
     val dispatcher = UnconfinedTestDispatcher()
-    val ws = FakeSocketFactory()
-    val rt = FakeSocketFactory()
+    val http = FakeCallFactory()
+    val streams = FakeEventSourceFactory()
     lateinit var app: EmojiGuesserApp
-    lateinit var wsClient: WebSocketClient
+    lateinit var client: GameClient
     lateinit var vm: GameViewModel
 
     private val clientScope = CoroutineScope(SupervisorJob() + dispatcher)
     private val store = ViewModelStore()
     private val json = Json
+    private var lastEventId = 0
 
     override fun before() {
         Dispatchers.setMain(dispatcher)
@@ -61,8 +64,8 @@ class GameViewModelRule : ExternalResource() {
     fun newViewModel(key: String): GameViewModel = ViewModelProvider(store, object : ViewModelProvider.Factory {
         @Suppress("UNCHECKED_CAST")
         override fun <T : ViewModel> create(modelClass: Class<T>): T {
-            wsClient = WebSocketClient(ws, clientScope)
-            return GameViewModel(app, wsClient, SupabaseRealtimeClient(REALTIME_URL, "anon", rt, clientScope)) as T
+            client = GameClient(API_URL, http, streams, clientScope)
+            return GameViewModel(app, client) as T
         }
     })[key, GameViewModel::class.java]
 
@@ -73,16 +76,20 @@ class GameViewModelRule : ExternalResource() {
         dispatcher.scheduler.runCurrent()
     }
 
+    /** Says hello, then answers every action with no messages. */
     fun connect() {
         vm.connect()
-        ws.last.open()
+        // The hello reply opens a stream on G1, so tests can play the server through it.
+        http.last.reply("""{"messages":[],"stream":{"gameId":"G1","after":0}}""")
+        streams.last.open()
+        http.autoReply = EMPTY_REPLY
     }
 
-    fun server(message: ServerMessage) = ws.last.receive(json.encodeToString(ServerMessage.serializer(), message))
+    fun server(message: ServerMessage) =
+        streams.last.event("${++lastEventId}", json.encodeToString(ServerMessage.serializer(), message))
 
-    fun realtime(message: ServerMessage) = rt.last.receive(
-        """{"event":"broadcast","payload":{"event":"game_event","payload":${json.encodeToString(ServerMessage.serializer(), message)}}}"""
-    )
+    /** The actions sent after hello, as JSON bodies. */
+    fun sent() = http.calls.map { it.json }.filter { it.str("action") != "hello" }
 
     fun plays(event: SoundEvent): Int {
         val pool = SoundManager::class.java.getDeclaredField("pool").apply { isAccessible = true }.get(app.sounds) as SoundPool
@@ -98,6 +105,6 @@ class GameViewModelRule : ExternalResource() {
     }
 
     companion object {
-        const val REALTIME_URL = "https://proj.supabase.co"
+        const val API_URL = "https://api.test/api"
     }
 }

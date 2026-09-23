@@ -66,6 +66,24 @@ describe('App - lobby flow', () => {
     });
   });
 
+  test('a join puts the game in the URL, so a reload rejoins it', async () => {
+    await renderAndConnect(App);
+    sendServerMessage({ action: 'playerJoined', game: { ...fixtures.gameCreated().game, gameId: 'JOINED1' } });
+    await waitFor(() => expect(window.history.pushState).toHaveBeenCalledWith({}, '', '?gameId=JOINED1'));
+
+    sendServerMessage({ action: 'spectatorJoined', game: { ...fixtures.gameCreated().game, gameId: 'WATCH01' } });
+    await waitFor(() => expect(window.history.pushState).toHaveBeenCalledWith({}, '', '?gameId=WATCH01'));
+  });
+
+  test('another player joining leaves a URL that already names the game alone', async () => {
+    window.history.replaceState({}, '', '/?gameId=GAME123');
+    await renderAndConnect(App);
+    sendServerMessage({ action: 'playerJoined', game: fixtures.gameCreated().game });
+    await waitFor(() => expect(screen.getByText('Share this')).toBeInTheDocument());
+    expect(window.history.pushState).not.toHaveBeenCalledWith({}, '', '?gameId=GAME123');
+    window.history.replaceState({}, '', '/');
+  });
+
   test('editing the player name in the lobby sends updatePlayerName', async () => {
     await renderAndConnect(App);
     sendServerMessage(fixtures.gameCreated());

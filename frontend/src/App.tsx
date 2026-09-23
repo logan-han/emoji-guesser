@@ -1,8 +1,8 @@
-import React, { useState, useEffect, FormEvent, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useLayoutEffect, FormEvent, useRef, useCallback } from 'react';
 import './App.css';
 import EmojiPicker, { EmojiClickData } from 'emoji-picker-react';
 import { playSound } from './sounds';
-import { supabase } from './supabase';
+import { GameSocket } from './gameSocket';
 
 interface Player {
   connectionId: string;
@@ -127,6 +127,13 @@ const getInitials = (name: string): string => (
     .toUpperCase() || '?'
 );
 
+// A reload, or a reconnect, rejoins whatever game the URL names, however the player got in.
+const rememberGameInUrl = (gameId: string) => {
+  if (new URLSearchParams(window.location.search).get('gameId') !== gameId) {
+    window.history.pushState({}, '', `?gameId=${gameId}`);
+  }
+};
+
 const formatTime = (seconds: number | null): string => {
   const safeSeconds = Math.max(0, seconds ?? 0);
   const minutes = Math.floor(safeSeconds / 60).toString().padStart(2, '0');
@@ -135,7 +142,7 @@ const formatTime = (seconds: number | null): string => {
 };
 
 const App: React.FC = () => {
-  const [ws, setWs] = useState<WebSocket | null>(null);
+  const [ws, setWs] = useState<GameSocket | null>(null);
   const [connectionId, setConnectionId] = useState<string | null>(null);
   const [connected, setConnected] = useState(false);
   const [game, setGame] = useState<Game | null>(null);
@@ -154,7 +161,6 @@ const App: React.FC = () => {
   const [pendingGameId, setPendingGameId] = useState<string | null>(null);
   const [isPublic, setIsPublic] = useState<boolean>(false);
   const [publicGames, setPublicGames] = useState<Game[]>([]);
-  const heartbeatIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [editingName, setEditingName] = useState<boolean>(false);
   const [copyFeedback, setCopyFeedback] = useState<boolean>(false);
   const [timeLimit, setTimeLimit] = useState<number>(120); // 2 minutes in seconds
@@ -169,11 +175,10 @@ const App: React.FC = () => {
   const connectionIdRef = useRef<string | null>(null);
   const sessionIdRef = useRef<string>('');
   const roundTimerIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  const timeUpSentRef = useRef<boolean>(false); // Track if timeUp was already sent for current round
-  const activeRoundTimerKeyRef = useRef<string | null>(null);
   const pendingTimeoutsRef = useRef<NodeJS.Timeout[]>([]); // Track pending timeouts for cleanup
   const reconnectAttemptsRef = useRef<number>(0);
   const seenEventIdsRef = useRef<Set<string>>(new Set());
+  const handleMessageRef = useRef<(data: WebSocketIncomingMessage) => void>(() => {});
   const maxReconnectAttempts = 5;
 
   // Input validation helpers
@@ -247,16 +252,14 @@ const App: React.FC = () => {
     // Only create WebSocket if we have a sessionId
     if (!sessionId) return;
 
-    // Replace with your actual WebSocket endpoint
-    const wsUrl = import.meta.env.VITE_WS_URL || 'ws://localhost:3001';
-    const newWs = new WebSocket(wsUrl);
+    const newWs = new GameSocket(sessionId);
     setWs(newWs);
 
     newWs.onopen = () => {
       setConnected(true);
       reconnectAttemptsRef.current = 0; // Reset on successful connection
       setErrorMessage(null); // Clear any connection error
-      console.log('Connected to WebSocket');
+      console.log('Connected to the game server');
 
       const urlParams = new URLSearchParams(window.location.search);
       const gameId = urlParams.get('gameId');
@@ -273,7 +276,7 @@ const App: React.FC = () => {
 
     newWs.onclose = () => {
       setConnected(false);
-      console.log('Disconnected from WebSocket');
+      console.log('Disconnected from the game server');
 
       // Attempt reconnection with exponential backoff
       if (reconnectAttemptsRef.current < maxReconnectAttempts) {
@@ -291,22 +294,18 @@ const App: React.FC = () => {
     };
 
     newWs.onerror = (error) => {
-      console.error('WebSocket error:', error);
+      console.error('Game server error:', error);
       setConnected(false);
       setErrorMessage('Connection error. Retrying...');
     };
 
+    // Through a ref, so every message reaches the latest render's handler rather than the first one's.
     newWs.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      handleMessage(data);
+      handleMessageRef.current(JSON.parse(event.data));
     };
 
     return () => {
       newWs.close();
-      if (heartbeatIntervalRef.current) {
-        clearInterval(heartbeatIntervalRef.current);
-        heartbeatIntervalRef.current = null;
-      }
       // Clean up all pending timeouts
       pendingTimeoutsRef.current.forEach(t => clearTimeout(t));
       pendingTimeoutsRef.current = [];
@@ -342,8 +341,6 @@ const App: React.FC = () => {
     }
     pendingTimeoutsRef.current.forEach(t => clearTimeout(t));
     pendingTimeoutsRef.current = [];
-    activeRoundTimerKeyRef.current = null;
-    timeUpSentRef.current = false;
     setRoundTimeLeft(null);
   }, []);
 
@@ -353,9 +350,9 @@ const App: React.FC = () => {
       // Fetch immediately when connected
       fetchPublicGames();
       
-      // Set up periodic refresh every 5 seconds, but only when not in a game
+      // Refresh every 5 seconds while not in a game, skipping tabs nobody is looking at
       const interval = setInterval(() => {
-        fetchPublicGames();
+        if (document.visibilityState !== 'hidden') fetchPublicGames();
       }, 5000);
       
       return () => clearInterval(interval);
@@ -368,14 +365,6 @@ const App: React.FC = () => {
       roundTimerIntervalRef.current = null;
     }
 
-    const roundTimerKey = `${gameState.gameId}:${gameState.turnStartTime || ''}`;
-    if (activeRoundTimerKeyRef.current !== roundTimerKey) {
-      pendingTimeoutsRef.current.forEach(t => clearTimeout(t));
-      pendingTimeoutsRef.current = [];
-      timeUpSentRef.current = false;
-      activeRoundTimerKeyRef.current = roundTimerKey;
-    }
-
     setRoundTimeLeft(null);
 
     if (gameState.turnStartTime && gameState.timeLimit) {
@@ -386,27 +375,14 @@ const App: React.FC = () => {
 
       setRoundTimeLeft(timeLeft);
 
+      // Only a countdown: the server ends the round itself when the time is up.
       if (timeLeft > 0) {
         const interval = setInterval(() => {
           setRoundTimeLeft(prev => {
             if (prev === null || prev <= 1) {
-              // Clear the timer when time is up
               clearInterval(interval);
               if (roundTimerIntervalRef.current === interval) {
                 roundTimerIntervalRef.current = null;
-              }
-              setRoundTimeLeft(0);
-
-              // Send timeUp only once per round to avoid race condition
-              if (gameState.gameId && !timeUpSentRef.current) {
-                timeUpSentRef.current = true;
-                sendMessage({ action: 'timeUp', gameId: gameState.gameId });
-
-                // Single retry after 1 second in case of network issue (server deduplicates)
-                const retryTimeout = setTimeout(() => {
-                  sendMessage({ action: 'timeUp', gameId: gameState.gameId });
-                }, 1000);
-                pendingTimeoutsRef.current.push(retryTimeout);
               }
               return 0;
             }
@@ -415,113 +391,9 @@ const App: React.FC = () => {
         }, 1000);
 
         roundTimerIntervalRef.current = interval;
-      } else {
-        // Time already up when starting timer
-        setRoundTimeLeft(0);
-        if (gameState.gameId && !timeUpSentRef.current) {
-          timeUpSentRef.current = true;
-          sendMessage({ action: 'timeUp', gameId: gameState.gameId });
-        }
       }
     }
-  }, [sendMessage]);
-
-  // Heartbeat that includes gameId when in game, or basic heartbeat when not in game
-  useEffect(() => {
-    if (ws && connected) {
-      const heartbeatInterval = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) {
-          const heartbeatMessage = game && game.gameId ? 
-            { action: 'heartbeat', sessionId, gameId: game.gameId } :
-            { action: 'heartbeat', sessionId };
-          
-          ws.send(JSON.stringify(heartbeatMessage));
-        }
-      }, 5000); // Every 5 seconds
-      
-      heartbeatIntervalRef.current = heartbeatInterval;
-      
-      return () => {
-        clearInterval(heartbeatInterval);
-        heartbeatIntervalRef.current = null;
-      };
-    }
-  }, [game, ws, connected, sessionId]);
-
-  useEffect(() => {
-    // Only run hint updates if game is actively being described and not ended
-    if (game && game.gameState === 'IN_PROGRESS' && game.turnState === 'DESCRIBING' && game.gameId) {
-      // Since heartbeat now handles regular updates every 5 seconds, we can reduce frequency here
-      // This provides additional updates for smoother progression during active play
-      const hintInterval = setInterval(() => {
-        sendMessage({ action: 'updateHint', gameId: game.gameId });
-      }, 10000); // Update hint every 10 seconds (less frequent since heartbeat is every 5s)
-      
-      // In the final 10 seconds, update more frequently
-      let aggressiveInterval: NodeJS.Timeout | null = null;
-      const timeLeft = roundTimeLeft;
-      if (timeLeft !== null && timeLeft <= 10) {
-        aggressiveInterval = setInterval(() => {
-          sendMessage({ action: 'updateHint', gameId: game.gameId });
-        }, 2000); // Every 2 seconds in the final 10 seconds
-      }
-      
-      return () => {
-        clearInterval(hintInterval);
-        if (aggressiveInterval) {
-          clearInterval(aggressiveInterval);
-        }
-      };
-    }
-  }, [game, sendMessage, roundTimeLeft]);
-
-  useEffect(() => {
-    if (!supabase || !game?.gameId) {
-      return;
-    }
-
-    const supabaseClient = supabase;
-    const channel = supabaseClient
-      .channel(`game:${game.gameId}`)
-      .on('broadcast', { event: 'game_status' }, (payload) => {
-        const updatedGame = payload.payload as Game | undefined;
-        if (!updatedGame || updatedGame.gameId !== game.gameId) {
-          return;
-        }
-
-        setGame(updatedGame);
-        syncConnectionIdFromGame(updatedGame);
-        syncRoleFromGame(updatedGame);
-
-        if (updatedGame.gameState === 'IN_PROGRESS' && updatedGame.turnState === 'DESCRIBING') {
-          if (updatedGame.currentHint !== undefined) {
-            setCurrentHint(updatedGame.currentHint);
-          }
-          startRoundTimer(updatedGame);
-        }
-
-        if (updatedGame.gameState === 'ENDED') {
-          setIsDescriber(false);
-          setIsChoosingWord(false);
-          setSecretWord('');
-          setCurrentHint('');
-          setWordOptions([]);
-          setEmojis([]);
-          clearRoundTimer();
-        }
-      })
-      .on('broadcast', { event: 'game_event' }, (payload) => {
-        handleMessage(payload.payload as WebSocketIncomingMessage);
-      })
-      .subscribe();
-
-    return () => {
-      supabaseClient.removeChannel(channel);
-    };
-    // handleMessage intentionally stays outside the dependency list so this subscription
-    // is recreated only when the active game channel changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [game?.gameId, startRoundTimer, clearRoundTimer]);
+  }, []);
 
   const onEmojiClick = (emojiData: EmojiClickData) => {
     if (game) {
@@ -601,6 +473,7 @@ const App: React.FC = () => {
         break;
       case 'playerJoined':
         playSound('playerJoined');
+        rememberGameInUrl(data.game.gameId);
         setGame(data.game);
         syncConnectionIdFromGame(data.game);
         syncRoleFromGame(data.game);
@@ -610,6 +483,7 @@ const App: React.FC = () => {
         }
         break;
       case 'spectatorJoined':
+        rememberGameInUrl(data.game.gameId);
         setGame(data.game);
         syncConnectionIdFromGame(data.game);
         syncRoleFromGame(data.game);
@@ -617,6 +491,7 @@ const App: React.FC = () => {
         break;
       case 'playerNameUpdated':
       case 'playerReconnected':
+      case 'gameUpdated':
         setGame(data.game);
         syncConnectionIdFromGame(data.game);
         syncRoleFromGame(data.game);
@@ -647,13 +522,11 @@ const App: React.FC = () => {
         setWordOptions(data.wordOptions);
         setChooseWordTimeLeft(10);
 
+        // Only a countdown: the server picks the first word if the describer runs out of time.
         const wordChoiceTimer = setInterval(() => {
           setChooseWordTimeLeft(prev => {
             if (prev === null || prev <= 1) {
               clearInterval(wordChoiceTimer);
-              if (wordOptions.length > 0) {
-                chooseWord(wordOptions[0]);
-              }
               return 0;
             }
             return prev - 1;
@@ -855,6 +728,10 @@ const App: React.FC = () => {
     }
   };
 
+  useLayoutEffect(() => {
+    handleMessageRef.current = handleMessage;
+  });
+
   const createGame = () => {
     playSound('buttonClick');
     const sanitizedName = sanitizePlayerName(playerName) || generateRandomPlayerName();
@@ -967,6 +844,7 @@ const App: React.FC = () => {
   };
 
   const backToLobby = () => {
+    if (game) sendMessage({ action: 'leaveGame', gameId: game.gameId, sessionId });
     setGame(null);
     setIsLoading(false);
     setIsDescriber(false);

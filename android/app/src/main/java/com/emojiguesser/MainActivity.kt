@@ -42,7 +42,7 @@ class MainActivity : ComponentActivity() {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     val viewModel: GameViewModel = viewModel()
 
-                    // Connect to WebSocket on launch
+                    // Check in with the server on launch
                     LaunchedEffect(Unit) {
                         viewModel.connect()
                     }

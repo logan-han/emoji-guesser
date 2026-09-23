@@ -126,6 +126,7 @@ local/
 
 # Android
 android/.gradle/
+android/.kotlin/
 android/local.properties
 android/captures/
 android/app/build/
@@ -140,3 +141,10 @@ android/**/*.jks
 android/**/*.keystore
 android/app/debug-keystore.jks
 android/app/google-services.json
+
+# Vercel
+.vercel
+.env*.local
+.agents/
+skills-lock.json
+.claude/skills/

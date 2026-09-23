@@ -19,12 +19,13 @@
     "test:e2e:report": "playwright show-report"
   },
   "dependencies": {
-    "@supabase/supabase-js": "^2.105.1",
+    "@neondatabase/serverless": "^1.1.0",
     "emoji-picker-react": "^4.12.3",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.57.0",
     "@testing-library/dom": "^10.4.0",

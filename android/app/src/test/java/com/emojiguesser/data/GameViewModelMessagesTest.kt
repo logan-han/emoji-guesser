@@ -31,30 +31,37 @@ class GameViewModelMessagesTest {
     fun connect() = rule.connect()
 
     @Test
-    fun `game actions update the game and subscribe to its realtime channel`() {
+    fun `game actions update the game`() {
         val actions = listOf(
             "gameCreated", "playerJoined", "gameStarted", "playerNameUpdated", "gameRestarted",
-            "playerLeft", "nextTurn", "playerReconnected", "spectatorJoined"
+            "playerLeft", "nextTurn", "playerReconnected", "spectatorJoined", "gameUpdated"
         )
 
         actions.forEachIndexed { round, action ->
             rule.server(ServerMessage(action = action, game = game(round = round)))
             assertEquals(action, round, vm.currentGame.value?.currentRound)
         }
+    }
 
-        assertEquals("G1", rule.wsClient.currentGameId)
-        assertEquals(1, rule.rt.sockets.size)
-        rule.rt.last.open()
-        assertTrue("realtime:game:G1" in rule.rt.last.sent.single())
+    @Test
+    fun `gameUpdated quietly refreshes the game without touching the turn`() {
+        rule.server(ServerMessage(action = "playerJoined", game = game(players = listOf(ann))))
+        rule.server(ServerMessage(action = "newEmoji", emoji = "🐘"))
+
+        rule.server(ServerMessage(action = "gameUpdated", game = game(players = listOf(ann, bob))))
+
+        assertEquals(listOf("Ann", "Bob"), vm.currentGame.value?.players?.map { it.name })
+        assertEquals(listOf("🐘"), vm.emojis.value)
+        assertEquals(1, rule.plays(SoundEvent.PlayerJoined))
     }
 
     @Test
     fun `game actions without a game are ignored`() {
         rule.server(ServerMessage(action = "playerJoined"))
         rule.server(ServerMessage(action = "nextTurn"))
+        rule.server(ServerMessage(action = "gameUpdated"))
 
         assertNull(vm.currentGame.value)
-        assertTrue(rule.rt.sockets.isEmpty())
     }
 
     @Test
@@ -227,9 +234,8 @@ class GameViewModelMessagesTest {
     }
 
     @Test
-    fun `errors are surfaced and no-op actions change nothing`() {
-        rule.server(ServerMessage(action = "connected", connectionId = "c1"))
-        rule.server(ServerMessage(action = "heartbeatAck"))
+    fun `errors are surfaced and unknown actions change nothing`() {
+        rule.server(ServerMessage(action = "statusMessage", message = "Ann is choosing a word..."))
         rule.server(ServerMessage(action = "somethingNew", game = game()))
         assertNull(vm.currentGame.value)
         assertNull(vm.errorMessage.value)
@@ -239,15 +245,16 @@ class GameViewModelMessagesTest {
     }
 
     @Test
-    fun `realtime broadcasts reach the same handlers and duplicate events are dropped`() {
-        rule.server(ServerMessage(action = "playerJoined", eventId = "e1", game = game(round = 1)))
-        rule.rt.last.open()
+    fun `action replies and stream events share one handler and duplicate events are dropped`() {
+        rule.http.autoReply = null
+        rule.server(ServerMessage(action = "playerJoined", eventId = "G1:1", game = game(round = 1)))
 
-        rule.realtime(ServerMessage(action = "newEmoji", eventId = "e2", emoji = "🐘"))
-        rule.server(ServerMessage(action = "newEmoji", eventId = "e2", emoji = "🐘"))
-        rule.realtime(ServerMessage(action = "playerJoined", eventId = "e1", game = game(round = 9)))
-        rule.realtime(ServerMessage(action = "newEmoji", emoji = "🥜"))
-        rule.realtime(ServerMessage(action = "newEmoji", emoji = "🥜"))
+        vm.submitEmoji("🐘")
+        rule.http.last.reply("""{"messages":[{"action":"newEmoji","emoji":"🐘","eventId":"G1:2"}]}""")
+        rule.server(ServerMessage(action = "newEmoji", eventId = "G1:2", emoji = "🐘"))
+        rule.server(ServerMessage(action = "playerJoined", eventId = "G1:1", game = game(round = 9)))
+        rule.server(ServerMessage(action = "newEmoji", emoji = "🥜"))
+        rule.server(ServerMessage(action = "newEmoji", emoji = "🥜"))
 
         assertEquals(listOf("🐘", "🥜", "🥜"), vm.emojis.value)
         assertEquals(1, vm.currentGame.value?.currentRound)

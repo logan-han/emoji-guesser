@@ -171,7 +171,8 @@ fun GameScreen(
         Spacer(Modifier.height(8.dp))
         ScoreStrip(
             players = game.players,
-            activeSessionId = currentDescriber?.sessionId,
+            // Session ids only come on the player's own entry; connection ids are on everyone.
+            activeConnectionId = currentDescriber?.connectionId,
             modifier = Modifier.fillMaxWidth()
         )
     }

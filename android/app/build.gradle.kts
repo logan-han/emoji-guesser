@@ -19,24 +19,16 @@ if (keystorePropertiesFile.exists()) {
     keystoreProperties.load(FileInputStream(keystorePropertiesFile))
 }
 
-// Load local overrides (e.g. WS_URL) from local.properties if present
+// Load local overrides (e.g. API_URL) from local.properties if present
 val localPropertiesFile = rootProject.file("local.properties")
 val localProperties = Properties()
 if (localPropertiesFile.exists()) {
     localProperties.load(FileInputStream(localPropertiesFile))
 }
 
-val defaultWsUrl = "wss://e0pujn2dij.execute-api.ap-southeast-4.amazonaws.com/prod"
-val wsUrl = System.getenv("WS_URL")
-    ?: localProperties.getProperty("WS_URL")
-    ?: defaultWsUrl
-
-val supabaseUrl = System.getenv("SUPABASE_URL")
-    ?: localProperties.getProperty("SUPABASE_URL")
-    ?: ""
-val supabaseAnonKey = System.getenv("SUPABASE_ANON_KEY")
-    ?: localProperties.getProperty("SUPABASE_ANON_KEY")
-    ?: ""
+val apiUrl = System.getenv("API_URL")
+    ?: localProperties.getProperty("API_URL")
+    ?: "https://emoji.han.life/api"
 
 // Resolve the release keystore, or null when there isn't one on disk. CI passes an
 // absolute KEYSTORE_FILE; keystore.properties uses a path relative to the app module.
@@ -63,11 +55,8 @@ android {
             useSupportLibrary = true
         }
 
-        // WebSocket URL resolved from env var, local.properties, or prod default.
-        buildConfigField("String", "WS_URL", "\"$wsUrl\"")
-        // Supabase Realtime config for cross-client game event sync.
-        buildConfigField("String", "SUPABASE_URL", "\"$supabaseUrl\"")
-        buildConfigField("String", "SUPABASE_ANON_KEY", "\"$supabaseAnonKey\"")
+        // Game server base URL resolved from env var, local.properties, or prod default.
+        buildConfigField("String", "API_URL", "\"$apiUrl\"")
     }
 
     // Only wire up release signing when a keystore is actually present, so that
@@ -140,6 +129,7 @@ dependencies {
     implementation("androidx.core:core-splashscreen:1.0.1")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.activity:activity-compose:1.9.3")
     implementation("androidx.fragment:fragment-ktx:1.8.5")
 
@@ -156,8 +146,9 @@ dependencies {
     // Navigation
     implementation("androidx.navigation:navigation-compose:2.8.4")
 
-    // WebSocket (OkHttp)
+    // HTTP and server-sent events (OkHttp)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("com.squareup.okhttp3:okhttp-sse:4.12.0")
 
     // JSON Serialization
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
@@ -184,6 +175,7 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.9.0")
     testImplementation("org.robolectric:robolectric:4.17")
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     testImplementation("androidx.test:core-ktx:1.7.0")
     testImplementation("androidx.test.ext:junit-ktx:1.3.0")
     testImplementation(platform("androidx.compose:compose-bom:2024.12.01"))

@@ -7,12 +7,11 @@ import androidx.lifecycle.ViewModelStore
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.emojiguesser.audio.SoundEvent
 import com.emojiguesser.network.ConnectionState
+import com.emojiguesser.testing.fields
+import com.emojiguesser.testing.str
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
-import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.contentOrNull
-import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -29,11 +28,7 @@ class GameViewModelActionsTest {
 
     private val prefs get() = rule.app.getSharedPreferences("emoji_guesser", Context.MODE_PRIVATE)
 
-    private fun sent(): List<JsonObject> = rule.ws.last.sentJson.filter { it.str("action") != "heartbeat" }
-
-    private fun JsonObject.str(key: String) = this[key]?.jsonPrimitive?.contentOrNull
-
-    private fun JsonObject.fields(vararg keys: String) = keys.map { str(it) }
+    private fun sent() = rule.sent()
 
     private fun me(name: String = "Me") = Player(connectionId = "c-me", sessionId = vm.sessionId, name = name)
 
@@ -77,17 +72,16 @@ class GameViewModelActionsTest {
     }
 
     @Test
-    fun `connect hands the session to the socket and mirrors its state`() {
+    fun `connect says hello with the session and mirrors the connection state`() {
         assertEquals(ConnectionState.DISCONNECTED, vm.connectionState.value)
 
         vm.connect()
         assertEquals(ConnectionState.CONNECTING, vm.connectionState.value)
-        rule.ws.last.open()
+        rule.http.last.reply()
 
         assertEquals(ConnectionState.CONNECTED, vm.connectionState.value)
-        assertEquals(vm.sessionId, rule.wsClient.sessionId)
-        rule.advance(5_000)
-        assertEquals(vm.sessionId, rule.ws.last.sentJson.single().str("sessionId"))
+        assertEquals(vm.sessionId, rule.client.sessionId)
+        assertEquals(listOf("hello", vm.sessionId), rule.http.calls.single().json.fields("action", "sessionId"))
     }
 
     @Test
@@ -159,7 +153,7 @@ class GameViewModelActionsTest {
     }
 
     @Test
-    fun `leaveGame resets the game state and leaves the realtime channel`() {
+    fun `leaveGame tells the server, stops the stream and resets the game state`() {
         rule.connect()
         receiveGame()
         rule.server(ServerMessage(action = "describeWord", word = "apple"))
@@ -179,8 +173,21 @@ class GameViewModelActionsTest {
         assertNull(vm.currentHint.value)
         assertNull(vm.lastGuessedWord.value)
         assertNull(vm.lastGuesserName.value)
-        assertNull(rule.wsClient.currentGameId)
-        assertEquals("client unsubscribed", rule.rt.last.closeReason)
+        assertEquals(listOf("leaveGame", "G1", vm.sessionId), sent().last().fields("action", "gameId", "sessionId"))
+        assertTrue(rule.streams.last.canceled)
+        assertNull(rule.client.currentGameId)
+    }
+
+    @Test
+    fun `leaveGame without a game only clears the turn`() {
+        rule.connect()
+        rule.server(ServerMessage(action = "newEmoji", emoji = "🍎"))
+
+        vm.leaveGame()
+
+        assertTrue(vm.emojis.value.isEmpty())
+        assertTrue(sent().isEmpty())
+        assertFalse(rule.streams.last.canceled)
     }
 
     @Test
@@ -221,28 +228,28 @@ class GameViewModelActionsTest {
     }
 
     @Test
-    fun `clearing the view model closes both sockets and stops handling messages`() {
+    fun `clearing the view model disconnects and stops handling messages`() {
         rule.connect()
         receiveGame()
 
         rule.clear()
         rule.server(ServerMessage(action = "newEmoji", emoji = "🐘"))
 
-        assertEquals("User disconnected", rule.ws.last.closeReason)
-        assertEquals("client unsubscribed", rule.rt.last.closeReason)
+        assertTrue(rule.streams.last.canceled)
+        assertEquals(ConnectionState.DISCONNECTED, rule.client.connectionState.value)
         assertTrue(vm.emojis.value.isEmpty())
     }
 
     @Test
-    fun `a cleared view model stays offline once its socket reports closed`() {
+    fun `a cleared view model stays offline once its stream ends`() {
         rule.connect()
         rule.clear()
 
-        rule.ws.last.closed(1000, "User disconnected")
+        rule.streams.last.end()
         rule.advance(60_000)
 
-        assertEquals(1, rule.ws.sockets.size)
-        assertTrue(rule.ws.last.sent.isEmpty())
+        assertEquals(1, rule.streams.sources.size)
+        assertEquals(1, rule.http.calls.size)
     }
 
     @Test

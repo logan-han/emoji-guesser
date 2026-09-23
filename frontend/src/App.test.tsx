@@ -47,7 +47,7 @@ describe('App - lifecycle and connection', () => {
     });
   });
 
-  test('logs and surfaces WebSocket onerror', async () => {
+  test('logs and surfaces a socket error', async () => {
     const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
     await renderAndConnect(App);
     const ws = mockWebSocketInstances[0];
@@ -57,7 +57,7 @@ describe('App - lifecycle and connection', () => {
     });
 
     await waitFor(() => {
-      expect(consoleSpy).toHaveBeenCalledWith('WebSocket error:', expect.any(Event));
+      expect(consoleSpy).toHaveBeenCalledWith('Game server error:', expect.any(Event));
     });
 
     consoleSpy.mockRestore();

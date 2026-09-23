@@ -8,36 +8,12 @@ import {
   renderAndConnect,
   sendServerMessage,
   sendServerMessages,
-  mockWebSocketInstances,
   fixtures,
 } from './testUtils';
 
 vi.mock('./sounds', () => ({
   playSound: vi.fn(),
 }));
-
-// Only the Supabase channel arms a round timer with a live socket, so the
-// countdown tests drive the game through a game_status broadcast.
-// `var` avoids the temporal dead zone: vitest hoists the factory above this file.
-var mockRealtime: { handlers: Record<string, (payload: any) => void> };
-
-vi.mock('./supabase', () => {
-  const channel: any = {
-    on: (_type: string, filter: { event: string }, handler: (payload: any) => void) => {
-      mockRealtime.handlers[filter.event] = handler;
-      return channel;
-    },
-    subscribe: () => channel,
-  };
-  return {
-    supabase: {
-      channel: () => channel,
-      removeChannel: () => {},
-    },
-  };
-});
-
-mockRealtime = { handlers: {} };
 
 installBrowserMocks();
 
@@ -64,32 +40,30 @@ const tick = async (ms: number) => {
   });
 };
 
-const emitGameStatus = (game: any) => {
-  act(() => {
-    mockRealtime.handlers['game_status']({ payload: game });
-  });
-};
-
-/** Gets into a game so the Supabase channel is subscribed and can drive it. */
+/** Into a game, then a round starting the way the server announces one to a guesser. */
 const startRound = async (game: any = describedGame()) => {
   await renderAndConnect(App);
   sendServerMessage(fixtures.gameCreated());
-  await waitFor(() => expect(mockRealtime.handlers['game_status']).toBeDefined());
-  emitGameStatus(game);
+  sendServerMessage({ action: 'turnStarted', game, hint: '_ _ _' });
+};
+
+const serverKeepsTime = () => {
+  expect(countAction('timeUp')).toBe(0);
+  expect(countAction('updateHint')).toBe(0);
+  expect(countAction('heartbeat')).toBe(0);
 };
 
 describe('App - timers', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     resetTestMocks();
-    mockRealtime.handlers = {};
   });
 
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  test('counts the round down and reports time up once, then retries', async () => {
+  test('counts the round down to zero and leaves ending it to the server', async () => {
     await startRound();
 
     await waitFor(() => expect(screen.getByText('00:03')).toBeInTheDocument());
@@ -99,62 +73,46 @@ describe('App - timers', () => {
 
     await tick(2000);
     expect(screen.getByText('00:00')).toBeInTheDocument();
-    expect(countAction('timeUp')).toBe(1);
-
-    // One retry a second later covers a dropped message; no more after that.
-    await tick(1000);
-    expect(countAction('timeUp')).toBe(2);
 
     await tick(5000);
-    expect(countAction('timeUp')).toBe(2);
+    expect(screen.getByText('00:00')).toBeInTheDocument();
+    serverKeepsTime();
   });
 
-  test('reports time up straight away for a round that already expired', async () => {
+  test('shows zero straight away for a round that already expired', async () => {
     await startRound(describedGame({ turnStartTime: new Date(Date.now() - 10_000).toISOString() }));
 
-    await waitFor(() => expect(countAction('timeUp')).toBe(1));
-    expect(screen.getByText('00:00')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('00:00')).toBeInTheDocument());
+    serverKeepsTime();
   });
 
-  test('drops the pending retry when the game ends first', async () => {
-    await startRound();
+  test("stops the countdown when the server calls time", async () => {
+    await startRound(describedGame({ timeLimit: 60 }));
+    await tick(2000);
+    expect(screen.getByText('00:58')).toBeInTheDocument();
 
+    sendServerMessage({ action: 'timeUp', word: 'cat' });
     await tick(3000);
-    expect(countAction('timeUp')).toBe(1);
 
-    emitGameStatus(describedGame({ gameState: 'ENDED', turnState: undefined }));
+    expect(screen.getByText('01:00')).toBeInTheDocument();
+  });
+
+  test('starts again from the top when the next turn starts', async () => {
+    await startRound(describedGame({ timeLimit: 60 }));
     await tick(5000);
 
-    expect(countAction('timeUp')).toBe(1);
+    sendServerMessage({ action: 'turnStarted', game: describedGame({ timeLimit: 90, turnStartTime: new Date().toISOString() }), hint: '_' });
+    await waitFor(() => expect(screen.getByText('01:30')).toBeInTheDocument());
   });
 
-  test('drops the pending retry when the next turn starts', async () => {
-    await startRound();
-
-    await tick(3000);
-    expect(countAction('timeUp')).toBe(1);
-
-    emitGameStatus(describedGame({ turnStartTime: new Date().toISOString(), timeLimit: 60 }));
-    await tick(5000);
-
-    expect(countAction('timeUp')).toBe(1);
-  });
-
-  test('heartbeats every five seconds, carrying the game id once in a game', async () => {
+  test('sends no heartbeats or hint requests, in the lobby or in a round', async () => {
     await renderAndConnect(App);
-
-    await tick(5000);
-    const lobbyBeat = sentActions().find(message => message.action === 'heartbeat');
-    expect(lobbyBeat).toMatchObject({ action: 'heartbeat' });
-    expect(lobbyBeat).not.toHaveProperty('gameId');
-
+    await tick(15_000);
     sendServerMessage(fixtures.gameCreated());
-    await tick(5000);
+    sendServerMessage({ action: 'turnStarted', game: describedGame({ timeLimit: 60 }), hint: '_ _ _' });
+    await tick(30_000);
 
-    expect(sentActions()).toContainEqual(expect.objectContaining({
-      action: 'heartbeat',
-      gameId: 'GAME123',
-    }));
+    serverKeepsTime();
   });
 
   test('refreshes the public game list while sitting in the lobby', async () => {
@@ -166,28 +124,17 @@ describe('App - timers', () => {
     expect(countAction('listPublicGames')).toBe(3);
   });
 
-  test('asks for a fresh hint every ten seconds, and every two once time is short', async () => {
+  test('skips the lobby refresh while the tab is hidden', async () => {
     await renderAndConnect(App);
-    sendServerMessage({
-      action: 'turnStarted',
-      game: describedGame({ timeLimit: 60 }),
-      hint: '_ _ _',
-    });
+    await waitFor(() => expect(countAction('listPublicGames')).toBe(1));
+    const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden');
 
     await tick(10_000);
-    expect(countAction('updateHint')).toBe(1);
+    expect(countAction('listPublicGames')).toBe(1);
 
-    // Under ten seconds left the aggressive timer kicks in alongside the slow one.
-    sendServerMessage({
-      action: 'turnStarted',
-      game: describedGame({ timeLimit: 8, turnStartTime: new Date().toISOString() }),
-      hint: '_ _ _',
-    });
-    await waitFor(() => expect(screen.getByText('00:08')).toBeInTheDocument());
-
-    const before = countAction('updateHint');
-    await tick(4000);
-    expect(countAction('updateHint')).toBe(before + 2);
+    visibility.mockRestore();
+    await tick(5_000);
+    expect(countAction('listPublicGames')).toBe(2);
   });
 
   test('clears an error banner after five seconds', async () => {
@@ -215,6 +162,8 @@ describe('App - timers', () => {
 
     await tick(7000);
     expect(screen.getByText('0:00')).toBeInTheDocument();
+    // The server picks the first word itself when the describer runs out of time.
+    expect(countAction('chooseWord')).toBe(0);
   });
 
   test('resets the copy-link confirmation after two seconds', async () => {
@@ -240,7 +189,6 @@ describe('App - rounds without a usable clock', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     resetTestMocks();
-    mockRealtime.handlers = {};
   });
 
   afterEach(() => {
@@ -248,11 +196,12 @@ describe('App - rounds without a usable clock', () => {
   });
 
   test('arms no countdown for a round that never recorded a start time', async () => {
-    await startRound(describedGame({ turnStartTime: undefined }));
+    await startRound(describedGame({ turnStartTime: undefined, timeLimit: 45 }));
+    await waitFor(() => expect(screen.getByText('00:45')).toBeInTheDocument());
 
     await tick(5000);
 
-    expect(countAction('timeUp')).toBe(0);
+    expect(screen.getByText('00:45')).toBeInTheDocument();
   });
 
   test('arms no countdown for a round with no time limit', async () => {
@@ -260,43 +209,6 @@ describe('App - rounds without a usable clock', () => {
 
     await tick(5000);
 
-    expect(countAction('timeUp')).toBe(0);
-  });
-
-  test('reports an expired round once however often it is re-sent', async () => {
-    const expired = describedGame({ turnStartTime: new Date(Date.now() - 10_000).toISOString() });
-    await startRound(expired);
-
-    await waitFor(() => expect(countAction('timeUp')).toBe(1));
-
-    emitGameStatus({ ...expired, currentRound: 1 });
-    await tick(100);
-
-    expect(countAction('timeUp')).toBe(1);
-  });
-
-  // The retry holds the sendMessage from the render that armed the timer, so its
-  // connected check is stale and the write lands on an already closed socket.
-  test('still fires the time-up retry after the socket has closed', async () => {
-    await startRound();
-
-    await tick(3000);
-    expect(countAction('timeUp')).toBe(1);
-
-    act(() => {
-      mockWebSocketInstances[0].onclose(new CloseEvent('close'));
-    });
-    await tick(1000);
-
-    expect(countAction('timeUp')).toBe(2);
-  });
-
-  test('holds the heartbeat back while the socket is not open', async () => {
-    await renderAndConnect(App);
-    mockWebSocketInstances[0].readyState = 3;
-
-    await tick(15_000);
-
-    expect(countAction('heartbeat')).toBe(0);
+    expect(screen.getByText('02:00')).toBeInTheDocument();
   });
 });

@@ -21,6 +21,7 @@ import androidx.compose.ui.test.performImeAction
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
+import androidx.lifecycle.Lifecycle
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.emojiguesser.data.Game
 import com.emojiguesser.network.ConnectionState
@@ -84,6 +85,22 @@ class LobbyScreenTest {
         assertEquals(1, listCalls)
 
         compose.mainClock.advanceTimeBy(5_000)
+        assertEquals(2, listCalls)
+        compose.mainClock.advanceTimeBy(5_000)
+        assertEquals(3, listCalls)
+    }
+
+    @Test
+    fun `polling pauses in the background and picks up again on return`() {
+        render()
+        assertEquals(1, listCalls)
+
+        compose.activityRule.scenario.moveToState(Lifecycle.State.CREATED)
+        compose.mainClock.advanceTimeBy(20_000)
+        assertEquals(1, listCalls)
+
+        compose.activityRule.scenario.moveToState(Lifecycle.State.RESUMED)
+        compose.waitForIdle()
         assertEquals(2, listCalls)
         compose.mainClock.advanceTimeBy(5_000)
         assertEquals(3, listCalls)
