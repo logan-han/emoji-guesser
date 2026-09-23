@@ -59,6 +59,8 @@ test('two players play a round against the real game server', async ({ browser }
   await guesser.getByPlaceholder('Type your guess...').press('Enter');
   await expect(describer.getByText('definitely-not-it', { exact: true })).toBeVisible();
 
+  // The client lets through one guess per 500ms and quietly drops the rest.
+  await guesser.waitForTimeout(600);
   await guesser.getByPlaceholder('Type your guess...').fill(word);
   await guesser.getByPlaceholder('Type your guess...').press('Enter');
   const announcement = `${guesserName} guessed correctly! The word was: ${word}`;
