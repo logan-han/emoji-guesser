@@ -1,0 +1,12 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.emojiguesser",
+      "sha256_cert_fingerprints": [
+        "73:36:9B:58:61:E9:99:D1:08:3E:8A:BA:A7:A1:09:36:D7:86:90:6F:AE:2A:E6:97:7A:A0:1A:AD:EA:30:59:8B"
+      ]
+    }
+  }
+]
